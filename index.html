@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -62,7 +62,7 @@
     <p class="footnote" style="margin-top:6px">Every group position routes to a fixed round-of-32 slot. Winners and
     runners-up have predetermined paths; the eight qualified thirds are allocated against group winners according to
     FIFA's combination table — a third never meets the winner of its own group. <span style="color:var(--color-peri)">Hover
-    any pill or match box</span> to trace a pairing and see the rule that created it.</p>
+    or tap any pill or match box</span> to trace a pairing and see the rule that created it.</p>
     <div class="legend">
       <span class="legend-item"><span class="swatch s-steel"></span> GROUP WINNER</span>
       <span class="legend-item"><span class="swatch s-dash"></span> RUNNER-UP</span>
@@ -77,11 +77,12 @@
     <h2 class="heading">The knockout sheet</h2>
     <p class="footnote" style="margin-top:6px">Five rounds from the round of 32 to the final. Drawn matches go to
     extra time, then penalties; red cards tilt the scoring model for the rest of a match. Labels show each slot's
-    origin until the simulation fills it. <span style="color:var(--color-peri)">Hover any fixture</span> for pre-match
-    odds — and, once played, the full story: score, dismissals, shoot-out kicks. In matchday mode, click fixtures
+    origin until the simulation fills it. <span style="color:var(--color-peri)">Hover or tap any fixture</span> for pre-match
+    odds — and, once played, the full story: score, dismissals, shoot-out kicks. In matchday mode, tap fixtures
     to play them yourself.</p>
-    <div class="bracket-wrap">
+    <div class="bracket-wrap" id="bracketWrap">
       <div class="bracket" id="bracket"></div>
+      <div class="bracket-stack" id="bracketStack"></div>
     </div>
   </section>
 
@@ -101,8 +102,8 @@
 
 </main>
 
-<script src="data.js?v=4"></script>
-<script src="engine.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="data.js?v=6"></script>
+<script src="engine.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

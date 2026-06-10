@@ -746,3 +746,228 @@ h3.subheading {
 
 .match-box[data-mid] { cursor: default; }
 .match-box.clickable[data-mid] { cursor: pointer; }
+
+/* ============================================================
+   MOBILE VERTICAL LAYOUTS
+   Rendered alongside the desktop SVG/wallchart/table and
+   toggled by the media query at the bottom of this file.
+   ============================================================ */
+
+/* mobile-only structures stay hidden on desktop */
+.flow-stack,
+.bracket-stack,
+.mc-stack,
+.mc-sort-wrap { display: none; }
+
+/* ---- placement: vertical R32 cards ---- */
+.flow-stack { display: none; flex-direction: column; gap: 10px; }
+
+.flow-mini-card {
+  border: 1px dashed var(--color-graphite);
+  background: var(--color-carbon);
+  padding: 10px 12px;
+  transition: border-color 140ms ease, opacity 140ms ease;
+}
+.flow-mini-card .fm-no {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-graphite);
+  margin-bottom: 7px;
+}
+.flow-mini-card .fm-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-paper);
+  padding: 3px 0;
+}
+.flow-mini-card .fm-slot + .fm-slot { border-top: 1px dashed rgba(77,77,77,0.4); }
+.flow-mini-card .fm-slot .slot-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-mini-card .fm-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  min-width: 30px;
+  text-align: center;
+  color: var(--color-ash);
+  flex-shrink: 0;
+}
+.flow-mini-card .fm-badge.pos0 { border-color: var(--color-steel); color: var(--color-paper); }
+.flow-mini-card .fm-badge.pos1 { border-style: dashed; }
+.flow-mini-card .fm-badge.pos2 { border-color: var(--color-peri); color: var(--color-peri); border-style: dashed; }
+.flow-mini-card .fm-vs {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--color-graphite);
+  text-align: center;
+  padding: 1px 0;
+}
+.flow-mini-card.hi { border-color: var(--color-peri); border-style: solid; }
+
+/* ---- knockout: round-stacked vertical ---- */
+.bracket-stack { display: none; flex-direction: column; gap: 22px; }
+
+.stack-round .stack-round-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-steel);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--color-graphite);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.stack-round.round-live .stack-round-head { color: var(--color-peri); }
+.stack-round .stack-round-head .rc { color: var(--color-graphite); }
+
+.stack-round .match-box { margin: 0 0 8px; }
+
+/* ---- monte carlo: funnel cards + sort dropdown ---- */
+.mc-sort-wrap {
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.mc-sort-wrap label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-steel);
+}
+.mc-sort-wrap select {
+  appearance: none;
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-pill);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 6px 28px 6px 14px;
+  cursor: pointer;
+}
+
+.mc-stack { flex-direction: column; gap: 10px; }
+.mc-card {
+  border: 1px dashed var(--color-graphite);
+  background: var(--color-carbon);
+  padding: 12px 14px;
+}
+.mc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.mc-card-head .rank {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-graphite);
+}
+.mc-card-head .name { font-weight: 700; color: var(--color-paper); flex: 1; }
+.mc-card-head .grp {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-graphite);
+}
+.mc-card-head .rating {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-steel);
+}
+.mc-funnel {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.mc-funnel .stage {
+  position: relative;
+  border: 1px solid rgba(77,77,77,0.5);
+  padding: 14px 2px 4px;
+  text-align: center;
+  overflow: hidden;
+}
+.mc-funnel .stage .sbar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: rgba(112,137,186,0.18);
+}
+.mc-funnel .stage .slabel {
+  position: relative;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  color: var(--color-graphite);
+}
+.mc-funnel .stage .sval {
+  position: relative;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ash);
+  margin-top: 2px;
+}
+.mc-funnel .stage.sorted { border-color: var(--color-peri); }
+.mc-funnel .stage.sorted .slabel,
+.mc-funnel .stage.sorted .sval { color: var(--color-peri); }
+.mc-funnel .stage.champ .sval { color: var(--color-paper); font-weight: 700; }
+
+/* ============================================================
+   MEDIA QUERY — narrow viewports
+   ============================================================ */
+@media (max-width: 768px) {
+  .hero { padding: 72px 18px 40px; }
+  h1.display { font-size: clamp(34px, 11vw, 52px); }
+  .dashed-section { padding: 34px 16px; margin-top: 32px; }
+  .page { padding: 0 12px var(--section-gap); }
+  .section-tag { left: 14px; font-size: 8px; letter-spacing: 0.1em; }
+
+  .control-deck { gap: 8px; }
+  .pill-btn { padding: 9px 16px; font-size: 13px; }
+
+  /* placement: hide SVG, show vertical cards */
+  .flow-wrap { overflow-x: visible; }
+  .flow-svg { display: none; }
+  .flow-stack { display: flex; }
+
+  /* knockout: hide wallchart, show stacked rounds */
+  .bracket-wrap { overflow-x: visible; padding-bottom: 0; }
+  .bracket { display: none; }
+  .bracket-stack { display: flex; }
+  .champion-plate { margin: 12px 0 0; }
+
+  /* monte carlo: hide table, show funnel cards + sort dropdown */
+  .mc-table-wrap { display: none; }
+  .mc-sort-wrap { display: flex; }
+  .mc-stack { display: flex; }
+
+  /* matchday feed: single column, allow narrow */
+  .matchday-feed { grid-template-columns: 1fr; }
+  .matchday-head { flex-direction: column; align-items: flex-start; }
+  .matchday-head > div:last-child { width: 100%; }
+  .matchday-head .pill-btn { flex: 1; text-align: center; }
+
+  /* tooltip becomes a bottom sheet, pinned and dismissible */
+  .tooltip.mobile-sheet {
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: 12px;
+    max-width: none;
+    border-style: solid;
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.7);
+  }
+}

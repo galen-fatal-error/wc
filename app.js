@@ -36,13 +36,17 @@ BRACKET.thirdSlots.forEach(s => { THIRD_ALLOWED[s.match] = s.allowed; });
 const SPEC_BY_ID = {};
 const ROUND_OF = {};
 const ALL_MATCH_IDS = [];
+const ROUND_IDS = { r32: [], r16: [], qf: [], sf: [], third: [], final: [] };
 for (const r of ['r32', 'r16', 'qf', 'sf', 'third', 'final']) {
   BRACKET[r].forEach(s => {
     SPEC_BY_ID[s.match] = s;
     ROUND_OF[s.match] = r;
     ALL_MATCH_IDS.push(s.match);
+    ROUND_IDS[r].push(s.match);
   });
 }
+
+const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
 
 // winner-advances-to map (and loser path to the bronze final)
 const NEXT_MATCH = {};
@@ -84,11 +88,17 @@ document.addEventListener('DOMContentLoaded', () => document.body.appendChild(ti
 function showTip(html, ev) {
   tipEl.innerHTML = html;
   tipEl.style.display = 'block';
-  moveTip(ev);
+  if (isMobile()) {
+    // pin as a bottom sheet rather than chase the finger
+    tipEl.classList.add('mobile-sheet');
+  } else {
+    tipEl.classList.remove('mobile-sheet');
+    moveTip(ev);
+  }
 }
 
 function moveTip(ev) {
-  if (tipEl.style.display !== 'block') return;
+  if (tipEl.style.display !== 'block' || tipEl.classList.contains('mobile-sheet')) return;
   const pad = 16;
   const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
   let x = ev.clientX + pad, y = ev.clientY + pad;
@@ -324,7 +334,25 @@ function renderFlow(sim) {
   });
 
   svg += '</svg>';
-  wrap.innerHTML = svg;
+
+  // mobile: vertical card stack of the 16 round-of-32 fixtures
+  const miniSlot = s => {
+    const t = team(s.tid);
+    const badge = (s.pos === 0 ? '1' : s.pos === 1 ? '2' : '3') + s.g;
+    return `<div class="fm-slot"><span class="fm-badge pos${s.pos}">${badge}</span>
+      <span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span></div>`;
+  };
+  let stack = '<div class="flow-stack" id="flowStack">';
+  BRACKET.r32.forEach(spec => {
+    const m = meta[spec.match];
+    stack += `<div class="flow-mini-card" data-hover="match" data-m="${spec.match}">
+      <div class="fm-no">Match ${spec.match} · Round of 32</div>
+      ${miniSlot(m.home)}<div class="fm-vs">vs</div>${miniSlot(m.away)}
+    </div>`;
+  });
+  stack += '</div>';
+
+  wrap.innerHTML = svg + stack;
 }
 
 function flowSideRule(matchId, side) {
@@ -356,18 +384,23 @@ function flowTip(matchId) {
 }
 
 function clearFlowFocus() {
+  const wrap = $('#flowWrap');
+  if (!wrap) return;
   const svg = $('#flowSvg');
-  if (!svg) return;
-  svg.classList.remove('focus');
-  svg.querySelectorAll('.hi').forEach(el => el.classList.remove('hi'));
+  if (svg) svg.classList.remove('focus');
+  wrap.querySelectorAll('.hi').forEach(el => el.classList.remove('hi'));
 }
 
 function setFlowFocus(matchId) {
+  const wrap = $('#flowWrap');
+  if (!wrap) return;
   const svg = $('#flowSvg');
-  if (!svg) return;
-  svg.classList.add('focus');
-  svg.querySelectorAll('.hi').forEach(el => el.classList.remove('hi'));
-  svg.querySelectorAll(`[data-m="${matchId}"]`).forEach(el => el.classList.add('hi'));
+  wrap.querySelectorAll('.hi').forEach(el => el.classList.remove('hi'));
+  if (svg) {
+    svg.classList.add('focus');
+    svg.querySelectorAll(`[data-m="${matchId}"]`).forEach(el => el.classList.add('hi'));
+  }
+  wrap.querySelectorAll(`.flow-mini-card[data-m="${matchId}"]`).forEach(el => el.classList.add('hi'));
 }
 
 // ---------- knockout bracket ----------
@@ -463,6 +496,29 @@ function renderBracket(sim, opts = {}) {
     column(R.qf, 'QF', 'R3', 'qf') +
     column(R.r16, 'R16', 'R2', 'r16') +
     column(R.r32, 'R32', 'R1', 'r32');
+
+  // mobile: round-stacked vertical layout (same match boxes, so the
+  // delegated tooltip + click-to-play handlers cover both renderings)
+  const champPlate = `<div class="champion-plate">
+    <span class="champ-flag">${champ ? champ.flag : '◌'}</span>
+    <div class="mono-micro">WORLD CHAMPIONS</div>
+    <div class="champ-name">${champ ? champ.name : '—'}</div>
+  </div>`;
+  const stackRound = (ids, title, key, sub) => {
+    const liveRound = liveId && ROUND_OF[liveId] === key;
+    return `<div class="stack-round ${liveRound ? 'round-live' : ''}">
+      <div class="stack-round-head">${title} <span class="rc">${sub}</span></div>
+      ${ids.map(matchBox).join('')}
+    </div>`;
+  };
+  $('#bracketStack').innerHTML =
+    stackRound(ROUND_IDS.r32, 'ROUND OF 32', 'r32', '16 TIES') +
+    stackRound(ROUND_IDS.r16, 'ROUND OF 16', 'r16', '8 TIES') +
+    stackRound(ROUND_IDS.qf, 'QUARTER-FINALS', 'qf', '4 TIES') +
+    stackRound(ROUND_IDS.sf, 'SEMI-FINALS', 'sf', 'M101–102') +
+    stackRound(ROUND_IDS.final, 'THE FINAL', 'final', 'JUL 19 · NY/NJ') +
+    champPlate +
+    stackRound(ROUND_IDS.third, 'BRONZE FINAL', 'third', 'M103');
 }
 
 function bracketTip(id) {
@@ -556,23 +612,49 @@ function renderMC() {
   }
   head += '</tr>';
 
+  const SHORT = { groupWin: 'GRP', r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', final: 'FIN', champion: 'CUP' };
+
   let body = '';
+  let cards = '';
   rows.forEach((r, i) => {
     const t = team(r.id);
     body += `<tr><td class="rank-cell">${String(i + 1).padStart(2, '0')}</td>
       <td class="team-cell"><span class="flag">${t.flag}</span>${t.name} <span class="mono-micro" style="color:#4d4d4d">${groupOf(r.id)}</span></td>
       <td>${t.elo}</td>`;
+    let funnel = '';
     for (const c of MC_COLS) {
       const p = (100 * r[c.key]) / n;
       body += `<td class="prob-cell"><span class="prob-bar" style="width:${Math.min(100, p)}%"></span>
         <span class="prob-num ${p >= 50 ? 'prob-hot' : ''}">${fmt(r[c.key])}</span></td>`;
+      funnel += `<div class="stage ${c.key === 'champion' ? 'champ' : ''} ${state.sort === c.key ? 'sorted' : ''}">
+        <span class="sbar" style="height:${Math.min(100, p)}%"></span>
+        <span class="slabel">${SHORT[c.key]}</span>
+        <span class="sval">${fmt(r[c.key])}</span>
+      </div>`;
     }
     body += '</tr>';
+    cards += `<div class="mc-card">
+      <div class="mc-card-head">
+        <span class="rank">${String(i + 1).padStart(2, '0')}</span>
+        <span class="flag">${t.flag}</span>
+        <span class="name">${t.name}</span>
+        <span class="grp">${groupOf(r.id)}</span>
+        <span class="rating">${t.elo}</span>
+      </div>
+      <div class="mc-funnel">${funnel}</div>
+    </div>`;
   });
+
+  const sortControl = `<div class="mc-sort-wrap">
+    <label for="mcSort">Sort by</label>
+    <select id="mcSort">${MC_COLS.map(c => `<option value="${c.key}" ${state.sort === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
+  </div>`;
 
   wrap.innerHTML = `
     <p class="mono-label" style="margin-bottom:4px">${n.toLocaleString()} TOURNAMENTS SIMULATED · VALUES IN %</p>
-    <div class="mc-table-wrap"><table class="mc-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    ${sortControl}
+    <div class="mc-table-wrap"><table class="mc-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    <div class="mc-stack">${cards}</div>`;
 
   wrap.querySelectorAll('th[data-sort]').forEach(th => {
     th.addEventListener('click', () => {
@@ -582,6 +664,8 @@ function renderMC() {
       renderMC();
     });
   });
+  const sel = wrap.querySelector('#mcSort');
+  if (sel) sel.addEventListener('change', () => { state.sort = sel.value; state.sortDir = -1; renderMC(); });
 }
 
 // ---------- modes ----------
@@ -815,13 +899,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // bracket: tooltip + click-to-play (matchday)
-  const bracket = $('#bracket');
-  bindTip(bracket, '.match-box[data-mid]', el => bracketTip(el.dataset.mid));
-  bracket.addEventListener('click', ev => {
+  // bracket: tooltip + click-to-play (matchday) — bound to the wrap so
+  // both the desktop wallchart and the mobile stacked rounds are covered
+  const bracketWrap = $('#bracketWrap');
+  bindTip(bracketWrap, '.match-box[data-mid]', el => bracketTip(el.dataset.mid));
+  bracketWrap.addEventListener('click', ev => {
     const el = ev.target.closest('.match-box.clickable');
-    if (el && bracket.contains(el)) playMatch(el.dataset.mid);
+    if (el && bracketWrap.contains(el)) playMatch(el.dataset.mid);
   });
+
+  // touch: dismiss the bottom-sheet tooltip on scroll or tap-away
+  const dismissSheet = ev => {
+    if (!tipEl.classList.contains('mobile-sheet') || tipEl.style.display !== 'block') return;
+    if (ev.type === 'scroll') { hideTip(); clearFlowFocus(); return; }
+    const t = ev.target;
+    const onInteractive = t && typeof t.closest === 'function' && t.closest('[data-team],[data-hover],[data-mid]');
+    if (!onInteractive) { hideTip(); clearFlowFocus(); }
+  };
+  window.addEventListener('scroll', dismissSheet, { passive: true });
+  document.addEventListener('touchstart', dismissSheet, { passive: true });
 
   resetAll();
 });
