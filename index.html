@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WC26 Bracket Lab — Tournament Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=4">
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="eyebrow-chip">FIFA WORLD CUP 26 <span class="dot">·</span> CAN / MEX / USA <span class="dot">·</span> SIMULATION SHEET</div>
+  <h1 class="display">48 TEAMS.<br>104 MATCHES.<br><span class="annotated">ONE SHEET.</span></h1>
+  <p class="hero-sub">A tournament simulator drawn on the schedule FIFA actually published — group stage to round
+  of 32 to the final at MetLife. Elo-weighted probabilities, real groups, real bracket paths.</p>
+
+  <div class="control-deck">
+    <button class="pill-btn" id="btnOnce">RUN ONCE</button>
+    <button class="pill-btn armed" id="btnMatchday">MATCHDAY MODE ▸</button>
+    <button class="pill-btn" id="btnThousand">RUN ×1000</button>
+    <button class="pill-btn ghost" id="btnReset">CLEAR SHEET</button>
+  </div>
+  <div class="mode-note" id="modeNote"></div>
+</header>
+
+<main class="page">
+
+  <!-- ============ MATCHDAY STAGE (drama mode) ============ -->
+  <section class="matchday-stage" id="matchdayStage">
+    <div class="matchday-head">
+      <div>
+        <span class="mono-micro" style="color:var(--color-peri)">MATCHDAY MODE · LIVE SHEET</span>
+        <h3 class="subheading" id="stageTitle">GROUP STAGE</h3>
+      </div>
+      <div style="display:flex; gap:10px">
+        <button class="pill-btn" id="nextRoundBtn" disabled>NEXT ROUND ▸</button>
+        <button class="pill-btn ghost" id="skipBtn">SKIP TO FULL TIME ▸▸</button>
+      </div>
+    </div>
+    <div class="matchday-feed" id="feed"></div>
+    <div class="upset-flash" id="upsetFlash"></div>
+  </section>
+
+  <!-- ============ FIG 01 · GROUP STAGE ============ -->
+  <section class="dashed-section">
+    <span class="section-tag">FIG. 01 <span class="tag-accent">·</span> GROUP STAGE — 12 GROUPS × 4, MATCHES 1–72</span>
+    <h2 class="heading">Group stage</h2>
+    <p class="footnote" style="margin-top:6px">Single round-robin. Top two from every group advance, plus the
+    eight best third-placed sides ranked across all twelve groups — 32 of 48 go through.</p>
+    <div class="groups-grid" id="groupsGrid"></div>
+    <div class="thirds-strip" id="thirdsStrip"></div>
+  </section>
+
+  <!-- ============ FIG 02 · PLACEMENT ============ -->
+  <section class="dashed-section">
+    <span class="section-tag">FIG. 02 <span class="tag-accent">·</span> PLACEMENT — GROUPS → ROUND OF 32, MATCHES 73–88</span>
+    <h2 class="heading">Out of the groups, onto the sheet</h2>
+    <p class="footnote" style="margin-top:6px">Every group position routes to a fixed round-of-32 slot. Winners and
+    runners-up have predetermined paths; the eight qualified thirds are allocated against group winners according to
+    FIFA's combination table — a third never meets the winner of its own group. <span style="color:var(--color-peri)">Hover
+    any pill or match box</span> to trace a pairing and see the rule that created it.</p>
+    <div class="legend">
+      <span class="legend-item"><span class="swatch s-steel"></span> GROUP WINNER</span>
+      <span class="legend-item"><span class="swatch s-dash"></span> RUNNER-UP</span>
+      <span class="legend-item"><span class="swatch"></span> BEST THIRD (ALLOCATED)</span>
+    </div>
+    <div class="flow-wrap" id="flowWrap"></div>
+  </section>
+
+  <!-- ============ FIG 03 · KNOCKOUT BRACKET ============ -->
+  <section class="dashed-section" id="bracketSection">
+    <span class="section-tag">FIG. 03 <span class="tag-accent">·</span> KNOCKOUT — MATCHES 73–104, FINAL JUL 19 · METLIFE</span>
+    <h2 class="heading">The knockout sheet</h2>
+    <p class="footnote" style="margin-top:6px">Five rounds from the round of 32 to the final. Drawn matches go to
+    extra time, then penalties; red cards tilt the scoring model for the rest of a match. Labels show each slot's
+    origin until the simulation fills it. <span style="color:var(--color-peri)">Hover any fixture</span> for pre-match
+    odds — and, once played, the full story: score, dismissals, shoot-out kicks. In matchday mode, click fixtures
+    to play them yourself.</p>
+    <div class="bracket-wrap">
+      <div class="bracket" id="bracket"></div>
+    </div>
+  </section>
+
+  <!-- ============ FIG 04 · PROBABILITIES ============ -->
+  <section class="dashed-section" id="mcSection">
+    <span class="section-tag">FIG. 04 <span class="tag-accent">·</span> MONTE CARLO — 1000 FULL TOURNAMENTS</span>
+    <h2 class="heading">The odds table</h2>
+    <div id="mcWrap"></div>
+    <p class="footnote">Model: match outcomes sampled from Poisson goal distributions tilted by FIFA ranking
+    difference (600-point logistic, per FIFA's own SUM formula). Group tiebreakers follow FIFA regulations —
+    points, goal difference, goals scored, head-to-head; fair play approximated by lots. Third-place allocation
+    solved per scenario against the published slot constraints. Ratings: FIFA Men's World Ranking, April 2026
+    order (points approximated from the November 2025 release where unpublished). Groups reflect the final
+    draw and March 2026 playoff results — Bosnia &amp; Herzegovina, Sweden, Türkiye, Czechia, DR Congo, Iraq.
+    Part simulation, part entertainment — no wagering advice on this sheet.</p>
+  </section>
+
+</main>
+
+<script src="data.js?v=4"></script>
+<script src="engine.js?v=4"></script>
+<script src="app.js?v=4"></script>
+</body>
+</html>
