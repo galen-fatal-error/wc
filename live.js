@@ -174,6 +174,14 @@ function nameToId(name) {
   return NAME_TO_ID[name.toLowerCase().trim()] || null;
 }
 
+// football-data team objects carry a 3-letter `tla` that usually equals
+// our FIFA id — prefer it, fall back to the name/alias map.
+function teamObjToId(obj) {
+  if (!obj) return null;
+  if (obj.tla && TEAMS[obj.tla]) return obj.tla;
+  return nameToId(obj.shortName) || nameToId(obj.name);
+}
+
 // map football-data status -> our status
 function mapStatus(s) {
   if (s === 'FINISHED' || s === 'AWARDED') return 'FINISHED';
@@ -219,8 +227,8 @@ function makeRealFeed(data, proxyUrl) {
       const out = [];
       const groupItems = [];
       for (const mt of matches) {
-        const home = nameToId(mt.homeTeam && mt.homeTeam.name);
-        const away = nameToId(mt.awayTeam && mt.awayTeam.name);
+        const home = teamObjToId(mt.homeTeam);
+        const away = teamObjToId(mt.awayTeam);
         if (!home || !away) continue;
         const status = mapStatus(mt.status);
         const ft = mt.score && mt.score.fullTime || {};
@@ -231,7 +239,7 @@ function makeRealFeed(data, proxyUrl) {
         const item = {
           stage: isGroup ? 'group' : 'ko', home, away, status,
           minute: Number(minute) || 0, hg, ag,
-          events: (mt.goals || []).map(g => ({ minute: g.minute, type: 'goal', team: nameToId(g.team && g.team.name) })),
+          events: (mt.goals || []).map(g => ({ minute: g.minute, type: 'goal', team: teamObjToId(g.team) })),
           _round: KO_STAGE_ROUND[mt.stage] || null,
           _winner: mt.score && mt.score.winner, // 'HOME_TEAM'|'AWAY_TEAM'|'DRAW'
         };
