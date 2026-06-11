@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 
@@ -22,6 +22,8 @@
     <button class="pill-btn" id="btnOnce">RUN ONCE</button>
     <button class="pill-btn armed" id="btnMatchday">MATCHDAY MODE ▸</button>
     <button class="pill-btn" id="btnThousand">RUN ×1000</button>
+    <button class="pill-btn" id="btnLive">● LIVE MODE</button>
+    <button class="pill-btn" id="btnFocus">TEAM FOCUS</button>
     <button class="pill-btn ghost" id="btnReset">CLEAR SHEET</button>
   </div>
   <div class="mode-note" id="modeNote"></div>
@@ -43,6 +45,27 @@
     </div>
     <div class="matchday-feed" id="feed"></div>
     <div class="upset-flash" id="upsetFlash"></div>
+  </section>
+
+  <!-- ============ LIVE MODE (real results wire) ============ -->
+  <section class="live-stage" id="liveStage">
+    <div class="live-head">
+      <div>
+        <span class="mono-micro" style="color:var(--color-peri)">LIVE MODE · REAL RESULTS WIRE</span>
+        <h3 class="subheading" id="liveTitle">Live results</h3>
+      </div>
+      <div class="live-controls">
+        <span class="seg">
+          <button class="pill-btn seg-btn armed" id="srcDemo">DEMO FEED</button>
+          <button class="pill-btn seg-btn ghost" id="srcReal">LIVE API</button>
+        </span>
+        <button class="pill-btn" id="livePlay">▶ PLAY</button>
+        <button class="pill-btn ghost" id="liveStep">STEP ▸</button>
+        <button class="pill-btn ghost" id="liveExit">EXIT</button>
+      </div>
+    </div>
+    <div class="live-meta" id="liveMeta"></div>
+    <div class="live-wire" id="liveWire"></div>
   </section>
 
   <!-- ============ FIG 01 · GROUP STAGE ============ -->
@@ -100,10 +123,32 @@
     Part simulation, part entertainment — no wagering advice on this sheet.</p>
   </section>
 
+  <!-- ============ FIG 05 · TEAM FOCUS ============ -->
+  <section class="dashed-section" id="focusSection">
+    <span class="section-tag">FIG. 05 <span class="tag-accent">·</span> TEAM FOCUS — WHO WILL THEY PLAY?</span>
+    <h2 class="heading">One team, every road</h2>
+    <p class="footnote" style="margin-top:6px">Pick a team and run the tournament many times to see its likely path.
+    Group opponents are fixed by the December draw — shown with single-match odds — but who it meets in each knockout
+    round is a probability distribution that these simulations reveal.</p>
+    <div class="focus-controls">
+      <label class="mono-label" for="focusTeam">Team</label>
+      <select id="focusTeam"></select>
+      <label class="mono-label" for="focusRuns">Runs</label>
+      <select id="focusRuns">
+        <option value="100">×100</option>
+        <option value="1000" selected>×1000</option>
+        <option value="10000">×10000</option>
+      </select>
+      <button class="pill-btn armed" id="focusRun">RUN ▸</button>
+    </div>
+    <div id="focusOut"></div>
+  </section>
+
 </main>
 
-<script src="data.js?v=6"></script>
-<script src="engine.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="data.js?v=7"></script>
+<script src="engine.js?v=7"></script>
+<script src="live.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

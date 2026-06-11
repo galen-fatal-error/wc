@@ -60,28 +60,8 @@ function redMinute() {
   return Math.round(15 + 75 * Math.pow(rng(), 0.55));
 }
 
-function simKnockoutMatch(teamA, teamB) {
-  const [laBase, lbBase] = goalLambdas(teamA.elo, teamB.elo);
-  let effA = laBase, effB = lbBase;
-  const cards = [];
-  if (rng() < RED_CARD_P) {
-    const min = redMinute();
-    cards.push({ team: teamA.id, minute: min });
-    const rem = (90 - min) / 90;
-    effA -= laBase * rem * 0.4;
-    effB += lbBase * rem * 0.3;
-  }
-  if (rng() < RED_CARD_P) {
-    const min = redMinute();
-    cards.push({ team: teamB.id, minute: min });
-    const rem = (90 - min) / 90;
-    effB -= lbBase * rem * 0.4;
-    effA += laBase * rem * 0.3;
-  }
-  cards.sort((x, y) => x.minute - y.minute);
-
-  let hg = poisson(Math.max(0.1, effA));
-  let ag = poisson(Math.max(0.1, effB));
+// Given a regulation result, resolve extra time then penalties if level.
+function resolveKnockout(teamA, teamB, hg, ag, effA, effB, cards) {
   let et = false, pens = null;
   if (hg === ag) {
     et = true;
@@ -103,6 +83,59 @@ function simKnockoutMatch(teamA, teamB) {
     winner: winnerId,
     loser: winnerId === teamA.id ? teamB.id : teamA.id,
   };
+}
+
+function simKnockoutMatch(teamA, teamB) {
+  const [laBase, lbBase] = goalLambdas(teamA.elo, teamB.elo);
+  let effA = laBase, effB = lbBase;
+  const cards = [];
+  if (rng() < RED_CARD_P) {
+    const min = redMinute();
+    cards.push({ team: teamA.id, minute: min });
+    const rem = (90 - min) / 90;
+    effA -= laBase * rem * 0.4;
+    effB += lbBase * rem * 0.3;
+  }
+  if (rng() < RED_CARD_P) {
+    const min = redMinute();
+    cards.push({ team: teamB.id, minute: min });
+    const rem = (90 - min) / 90;
+    effB -= lbBase * rem * 0.4;
+    effA += laBase * rem * 0.3;
+  }
+  cards.sort((x, y) => x.minute - y.minute);
+
+  const hg = poisson(Math.max(0.1, effA));
+  const ag = poisson(Math.max(0.1, effB));
+  return resolveKnockout(teamA, teamB, hg, ag, effA, effB, cards);
+}
+
+// ---------- conditioning on real / in-play data ----------
+// pairKey is order-independent so a group fixture maps to one slot
+// regardless of who is nominally "home".
+function pairKey(a, b) { return [a, b].sort().join('|'); }
+
+// Goals expected to still be scored in `minutesLeft` of a match running
+// at full-90 rate `lambdaFull`.
+function remainingGoals(lambdaFull, minutesLeft) {
+  return poisson(Math.max(0, (lambdaFull * minutesLeft) / 90));
+}
+
+// Complete an in-play group match from its current score + minute.
+function completeGroupLive(teamA, teamB, curA, curB, minute) {
+  const [la, lb] = goalLambdas(teamA.elo, teamB.elo);
+  const left = Math.max(0, 90 - minute);
+  return { hg: curA + remainingGoals(la, left), ag: curB + remainingGoals(lb, left) };
+}
+
+// Complete an in-play knockout match from its current score + minute,
+// then carry on into extra time / penalties as needed.
+function completeKnockoutLive(teamA, teamB, curA, curB, minute) {
+  const [la, lb] = goalLambdas(teamA.elo, teamB.elo);
+  const left = Math.max(0, 90 - minute);
+  const hg = curA + remainingGoals(la, left);
+  const ag = curB + remainingGoals(lb, left);
+  return resolveKnockout(teamA, teamB, hg, ag, la, lb, []);
 }
 
 // Kick-by-kick best-of-five with early termination, then sudden death.
@@ -167,7 +200,7 @@ function koWinProb(eloA, eloB) {
 // FIFA tiebreakers (within group): points, GD, GF, head-to-head points,
 // head-to-head GD, head-to-head GF, then drawing of lots (random here;
 // fair-play points are not modelled).
-function simulateGroup(groupTeams) {
+function simulateGroup(groupTeams, known) {
   const stats = {};
   for (const t of groupTeams) {
     stats[t.id] = { id: t.id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
@@ -175,7 +208,24 @@ function simulateGroup(groupTeams) {
   const matches = [];
   for (let i = 0; i < groupTeams.length; i++) {
     for (let j = i + 1; j < groupTeams.length; j++) {
-      const m = simGroupMatch(groupTeams[i], groupTeams[j]);
+      const A = groupTeams[i], B = groupTeams[j];
+      const key = pairKey(A.id, B.id);
+      const kf = known && known.groups && known.groups[key];
+      const kl = known && known.groupsLive && known.groupsLive[key];
+      let m;
+      if (kf) {
+        // finished real result; store with A as home so applyResult lines up
+        const aGoals = kf.home === A.id ? kf.hg : kf.ag;
+        const bGoals = kf.home === A.id ? kf.ag : kf.hg;
+        m = { home: A.id, away: B.id, hg: aGoals, ag: bGoals, real: true };
+      } else if (kl) {
+        const curA = kl.home === A.id ? kl.hg : kl.ag;
+        const curB = kl.home === A.id ? kl.ag : kl.hg;
+        const fin = completeGroupLive(A, B, curA, curB, kl.minute);
+        m = { home: A.id, away: B.id, hg: fin.hg, ag: fin.ag, live: true };
+      } else {
+        m = simGroupMatch(A, B);
+      }
       matches.push(m);
       applyResult(stats[m.home], m.hg, m.ag);
       applyResult(stats[m.away], m.ag, m.hg);
@@ -307,14 +357,14 @@ function resolveSlot(ref, ctx) {
   throw new Error('bad slot ref ' + ref);
 }
 
-function simulateTournament(data) {
+function simulateTournament(data, known) {
   const { TEAMS, GROUPS, BRACKET } = data;
   const team = id => TEAMS[id];
 
-  // group stage
+  // group stage (locks finished real results; completes in-play ones)
   const groupResults = {};
   for (const g of Object.keys(GROUPS)) {
-    groupResults[g] = simulateGroup(GROUPS[g].map(team));
+    groupResults[g] = simulateGroup(GROUPS[g].map(team), known);
   }
 
   const winners1 = {}, runners = {};
@@ -338,7 +388,26 @@ function simulateTournament(data) {
     for (const spec of BRACKET[roundKey]) {
       const a = resolveSlot(spec.home, ctx);
       const b = resolveSlot(spec.away, ctx);
-      const m = simKnockoutMatch(a, b);
+      const kf = known && known.ko && known.ko[spec.match];
+      const kl = known && known.koLive && known.koLive[spec.match];
+      let m;
+      if (kf && (kf.winner === a.id || kf.winner === b.id)) {
+        // finished real knockout result — lock it
+        const aGoals = kf.home === a.id ? kf.hg : kf.ag;
+        const bGoals = kf.home === a.id ? kf.ag : kf.hg;
+        m = {
+          home: a.id, away: b.id, hg: aGoals, ag: bGoals,
+          et: !!kf.et, cards: kf.cards || [], pens: kf.pens || null,
+          winner: kf.winner, loser: kf.winner === a.id ? b.id : a.id, real: true,
+        };
+      } else if (kl) {
+        const curA = kl.home === a.id ? kl.hg : kl.ag;
+        const curB = kl.home === a.id ? kl.ag : kl.hg;
+        m = completeKnockoutLive(a, b, curA, curB, kl.minute);
+        m.live = true;
+      } else {
+        m = simKnockoutMatch(a, b);
+      }
       m.match = spec.match;
       m.homeRef = spec.home;
       m.awayRef = spec.away;
@@ -361,13 +430,13 @@ function simulateTournament(data) {
 
 // ---------- monte carlo ----------
 
-function monteCarlo(data, n, onProgress) {
+function monteCarlo(data, n, onProgress, known) {
   const tally = {};
   for (const id of Object.keys(data.TEAMS)) {
     tally[id] = { groupWin: 0, r32: 0, r16: 0, qf: 0, sf: 0, final: 0, champion: 0 };
   }
   for (let i = 0; i < n; i++) {
-    const sim = simulateTournament(data);
+    const sim = simulateTournament(data, known);
     for (const g of Object.keys(sim.groupResults)) {
       tally[sim.groupResults[g].table[0].id].groupWin++;
     }
@@ -382,4 +451,41 @@ function monteCarlo(data, n, onProgress) {
     if (onProgress && (i + 1) % 50 === 0) onProgress(i + 1, n);
   }
   return { tally, n };
+}
+
+// ---------- single-team focus ----------
+// Run n full tournaments and, for one team, tally: where it finishes its
+// group, how far it advances, and — the headline — the distribution of
+// WHO it meets at each knockout round (conditional on reaching it).
+function teamFocusMonteCarlo(data, teamId, n, known) {
+  const KO = ['r32', 'r16', 'qf', 'sf', 'final'];
+  const out = {
+    n, teamId,
+    groupFinish: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    thirdQualify: 0,            // times finished 3rd AND advanced
+    reach: { r32: 0, r16: 0, qf: 0, sf: 0, final: 0, champion: 0 },
+    opp: { r32: {}, r16: {}, qf: {}, sf: {}, final: {} },
+  };
+  const grp = Object.keys(data.GROUPS).find(g => data.GROUPS[g].includes(teamId));
+
+  for (let i = 0; i < n; i++) {
+    const sim = simulateTournament(data, known);
+    const table = sim.groupResults[grp].table;
+    const pos = table.findIndex(r => r.id === teamId) + 1; // 1..4
+    out.groupFinish[pos]++;
+
+    let advanced = false;
+    for (const round of KO) {
+      const m = sim.rounds[round].find(x => x.home === teamId || x.away === teamId);
+      if (!m) break; // didn't reach this round
+      if (round === 'r32') advanced = true;
+      out.reach[round]++;
+      const oppId = m.home === teamId ? m.away : m.home;
+      out.opp[round][oppId] = (out.opp[round][oppId] || 0) + 1;
+      if (m.winner !== teamId) break; // eliminated this round
+      if (round === 'final') out.reach.champion++;
+    }
+    if (pos === 3 && advanced) out.thirdQualify++;
+  }
+  return out;
 }

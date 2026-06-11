@@ -747,6 +747,180 @@ h3.subheading {
 .match-box[data-mid] { cursor: default; }
 .match-box.clickable[data-mid] { cursor: pointer; }
 
+/* real-data markers (live mode projections) */
+.match-box.real-locked { border-style: solid; border-color: var(--color-steel); }
+.match-box.real-locked .match-no::after { content: ' · REAL'; color: var(--color-peri); }
+.match-box.live-real { border-style: solid; border-color: var(--color-peri); }
+
+/* ============================================================
+   LIVE MODE — real results wire
+   ============================================================ */
+.live-stage {
+  border: 1px dashed var(--color-peri);
+  background: var(--color-carbon);
+  padding: 24px;
+  margin-top: 24px;
+  display: none;
+}
+.live-stage.active { display: block; }
+
+.live-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.live-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.live-controls .seg { display: inline-flex; border: 1px solid var(--color-graphite); border-radius: var(--radius-pill); overflow: hidden; }
+.live-controls .seg-btn { border: none; border-radius: 0; padding: 8px 14px; }
+.live-controls .seg-btn.armed { background: rgba(112,137,186,0.16); }
+
+.live-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--color-steel);
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.live-meta b { color: var(--color-peri); font-weight: 500; }
+
+.live-wire {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+.wire-match {
+  border: 1px dashed var(--color-graphite);
+  background: var(--color-void);
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: center;
+}
+.wire-match.live { border-color: var(--color-peri); border-style: solid; }
+.wire-match.finished { opacity: 0.78; }
+.wire-match .wm-team { font-size: 13px; color: var(--color-ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wire-match .wm-team.win { color: var(--color-paper); font-weight: 700; }
+.wire-match .wm-score { font-family: var(--font-mono); font-size: 13px; color: var(--color-paper); text-align: right; min-width: 18px; }
+.wire-match .wm-status {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-graphite);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed rgba(77,77,77,0.4);
+}
+.wire-match.live .wm-status .wm-min { color: var(--color-peri); }
+.wire-match .wm-events { color: var(--color-steel); text-transform: none; letter-spacing: 0; }
+
+/* ============================================================
+   TEAM FOCUS — who will they play
+   ============================================================ */
+.focus-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 20px 0 8px;
+}
+.focus-controls select {
+  appearance: none;
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-pill);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.focus-controls label { margin-left: 6px; }
+
+.focus-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+.focus-panel {
+  border: 1px dashed var(--color-graphite);
+  background: var(--color-carbon);
+  padding: 16px;
+}
+.focus-panel h4 {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-peri);
+  margin-bottom: 12px;
+}
+.focus-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px dashed var(--color-steel);
+  background: var(--color-carbon);
+}
+.focus-hero .fh-flag { font-size: 34px; }
+.focus-hero .fh-name { font-size: var(--text-subheading); font-weight: 1000; letter-spacing: -0.24px; }
+.focus-hero .fh-meta { font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); letter-spacing: 0.06em; }
+
+/* a labeled probability bar row */
+.prob-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 13px;
+}
+.prob-row .pr-label { color: var(--color-ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prob-row .pr-label .flag { margin-right: 5px; }
+.prob-row .pr-track { height: 8px; border: 1px solid var(--color-graphite); position: relative; }
+.prob-row .pr-fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(112,137,186,0.5); }
+.prob-row .pr-val { font-family: var(--font-mono); font-size: 11px; color: var(--color-paper); text-align: right; }
+.prob-row.dim .pr-label, .prob-row.dim .pr-val { color: var(--color-graphite); }
+
+/* H2H three-way split bar */
+.h2h-row { margin-bottom: 12px; }
+.h2h-row .h2h-name { font-size: 13px; color: var(--color-paper); margin-bottom: 4px; }
+.h2h-row .h2h-name .flag { margin-right: 5px; }
+.h2h-bar { display: flex; height: 9px; border: 1px solid var(--color-graphite); font-size: 0; }
+.h2h-bar .win { background: rgba(112,137,186,0.55); }
+.h2h-bar .draw { background: var(--color-graphite); }
+.h2h-bar .loss { background: rgba(112,137,186,0.12); }
+.h2h-row .h2h-pct { font-family: var(--font-mono); font-size: 9px; color: var(--color-steel); margin-top: 3px; display: flex; justify-content: space-between; }
+
+.focus-round-block { margin-bottom: 16px; }
+.focus-round-block .frb-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-steel);
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--color-graphite);
+  padding-bottom: 5px;
+  margin-bottom: 8px;
+}
+.focus-round-block .frb-head .reach { color: var(--color-peri); }
+
 /* ============================================================
    MOBILE VERTICAL LAYOUTS
    Rendered alongside the desktop SVG/wallchart/table and

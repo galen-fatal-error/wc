@@ -22,9 +22,13 @@ const state = {
   sortDir: -1,
   token: 0,             // cancellation token for matchday animations
   matchday: null,       // { sim, revealed:Set, groupsDone, phase, busy }
-  groupsView: null,     // { sim, resolved:Set|null }
+  groupsView: null,     // { sim, resolved:Set|null, live? }
   flowView: null,       // { sim, meta: matchId -> {home,away} }
   bracketView: null,    // { sim, revealed, groupsDone, interactive }
+  known: null,          // real/in-play results folded for the engine
+  mcContext: '',        // label override for the odds table
+  live: null,           // { feed, kind, tick, playing, timer, lastSig }
+  focus: null,          // last team-focus result
 };
 
 const team = id => TEAMS[id];
@@ -185,6 +189,20 @@ function groupRowTip(teamId) {
   const done = sim && (!view.resolved || view.resolved.has(g));
 
   let html = `<span class="tip-head">${t.flag} ${t.name} · GROUP ${g}</span>`;
+
+  // live mode: show real partial standings
+  if (view.live) {
+    const gs = view.live[g];
+    const row = gs.table.find(r => r.id === teamId);
+    const pos = gs.table.findIndex(r => r.id === teamId) + 1;
+    html += `<span class="tip-row tip-mono">PTS <span class="tip-strong">${row.pts}</span> ·
+      W${row.w} D${row.d} L${row.l} · GD <span class="tip-strong">${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</span>
+      · ${row.p} of 3 played</span>
+      <span class="tip-row">Provisional <span class="tip-strong">${pos}${['st','nd','rd','th'][pos - 1]}</span> in Group ${g}
+      ${gs.played < 6 ? '— group still in progress' : '— group complete'}.</span>
+      <span class="tip-rule">Live standings from real results. Top two qualify; ranking by points → GD → goals → head-to-head.</span>`;
+    return html;
+  }
   if (!done) {
     html += `<span class="tip-row">FIFA rating <span class="tip-strong">${t.elo}</span> — drives every simulated result.</span>
       <span class="tip-rule">Group ranking order (FIFA Art. 13): points → goal difference → goals scored →
@@ -454,8 +472,10 @@ function renderBracket(sim, opts = {}) {
     const m = matchById(sim, id);
     const played = revealed.has(id);
     const live = liveId === id;
+    const realLock = played && m && m.real;
+    const liveReal = m && m.live;
     const clickable = interactive && !played && !live && m && refKnown(spec.home) && refKnown(spec.away);
-    return `<div class="match-box ${played ? 'match-played' : ''} ${live ? 'match-live pulsing' : ''} ${clickable ? 'clickable' : ''}" data-mid="${id}">
+    return `<div class="match-box ${played ? 'match-played' : ''} ${live ? 'match-live pulsing' : ''} ${realLock ? 'real-locked' : ''} ${liveReal ? 'live-real' : ''} ${clickable ? 'clickable' : ''}" data-mid="${id}">
       <span class="match-no">M${id}${m && m.et && played ? ' · AET' : ''}</span>
       ${slotHtml(spec.home, m, 'home')}
       ${slotHtml(spec.away, m, 'away')}
@@ -651,7 +671,7 @@ function renderMC() {
   </div>`;
 
   wrap.innerHTML = `
-    <p class="mono-label" style="margin-bottom:4px">${n.toLocaleString()} TOURNAMENTS SIMULATED · VALUES IN %</p>
+    <p class="mono-label" style="margin-bottom:4px">${state.mcContext || (n.toLocaleString() + ' TOURNAMENTS SIMULATED')} · VALUES IN %</p>
     ${sortControl}
     <div class="mc-table-wrap"><table class="mc-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="mc-stack">${cards}</div>`;
@@ -676,8 +696,14 @@ function resetAll() {
   state.token++;
   state.sim = null;
   state.matchday = null;
+  if (state.live && state.live.timer) clearInterval(state.live.timer);
+  state.live = null;
+  state.known = null;
+  state.mc = null;
+  state.mcContext = '';
   hideTip();
   $('#matchdayStage').classList.remove('active');
+  $('#liveStage').classList.remove('active');
   renderGroups(null);
   renderThirds(null);
   renderFlow(null);
@@ -866,6 +892,332 @@ function skipMatchday() {
   setNote(`SKIPPED TO FULL TIME · CHAMPION <span class="live">${champ.name.toUpperCase()} ${champ.flag}</span>`);
 }
 
+// ============================================================
+//  LIVE MODE — ingest real results, continue the simulation
+// ============================================================
+
+// real partial standings from finished group results only
+function realGroupStandings(known) {
+  const res = {};
+  for (const g of Object.keys(GROUPS)) {
+    const ids = GROUPS[g];
+    const stats = {};
+    ids.forEach(id => { stats[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }; });
+    const matches = [];
+    let played = 0;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const kf = known.groups[pairKey(ids[i], ids[j])];
+        if (!kf) continue;
+        const a = ids[i], b = ids[j];
+        const ag = kf.home === a ? kf.hg : kf.ag;
+        const bg = kf.home === a ? kf.ag : kf.hg;
+        applyResult(stats[a], ag, bg);
+        applyResult(stats[b], bg, ag);
+        matches.push({ home: a, away: b, hg: ag, ag: bg });
+        played++;
+      }
+    }
+    res[g] = { table: rankGroup(Object.values(stats), matches), played };
+  }
+  return res;
+}
+
+function renderGroupsLive(standings) {
+  state.groupsView = { sim: null, live: standings };
+  const grid = $('#groupsGrid');
+  grid.innerHTML = '';
+  for (const g of Object.keys(GROUPS)) {
+    const gs = standings[g];
+    const complete = gs.played === 6;
+    const card = document.createElement('div');
+    card.className = 'group-card' + (complete ? ' resolved' : '');
+    let rows = '';
+    gs.table.forEach((row, i) => {
+      const t = team(row.id);
+      const cls = gs.played > 0 ? (i === 0 ? 'row-q1' : i === 1 ? 'row-q2' : 'row-out') : '';
+      rows += `<tr class="${cls}" data-team="${t.id}">
+        <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
+        <td>${row.w}-${row.d}-${row.l}</td>
+        <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
+        <td class="pts-cell">${row.pts}</td>
+      </tr>`;
+    });
+    card.innerHTML = `
+      <div class="group-head">
+        <span class="group-letter">${g}</span>
+        <span class="mono-micro">${complete ? 'FINAL' : 'LIVE · ' + gs.played + '/6'}</span>
+      </div>
+      <table class="group-table">
+        <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    grid.appendChild(card);
+  }
+}
+
+function renderLiveMeta(folded, sourceLabel) {
+  $('#liveMeta').innerHTML = `
+    <span>SOURCE <b>${sourceLabel}</b></span>
+    <span>REAL RESULTS LOCKED <b>${folded.finished}</b></span>
+    <span>IN PLAY <b>${folded.live}</b></span>
+    <span>GROUP <b>${folded.groupFinished}/72</b></span>
+    <span>KNOCKOUT <b>${folded.koFinished}/31</b></span>`;
+}
+
+function wireMatchCard(fx) {
+  const h = team(fx.home), a = team(fx.away);
+  const label = fx.stage === 'ko' ? 'M' + fx.matchNo : 'GRP ' + fx.groupKey;
+  let statusTxt, cls;
+  if (fx.status === 'LIVE') {
+    statusTxt = `<span class="wm-min">● ${fx.minute}'</span>`;
+    cls = 'live';
+  } else {
+    statusTxt = `<span>FT${fx.et ? ' · AET' : ''}${fx.pens ? ' · PENS' : ''}</span>`;
+    cls = 'finished';
+  }
+  const evs = (fx.events || []).filter(e => e.type === 'red');
+  const evTxt = evs.length ? `<span class="wm-events">🟥 ${evs.map(e => team(e.team).code + ' ' + e.minute + "'").join(', ')}</span>` : `<span class="wm-events"></span>`;
+  const winH = fx.status === 'FINISHED' && (fx.winner ? fx.winner === fx.home : fx.hg > fx.ag);
+  const winA = fx.status === 'FINISHED' && (fx.winner ? fx.winner === fx.away : fx.ag > fx.hg);
+  return `<div class="wire-match ${cls}">
+    <span class="wm-team ${winH ? 'win' : ''}"><span class="flag">${h.flag}</span>${h.name}</span>
+    <span class="wm-score">${fx.hg}</span>
+    <span class="wm-team ${winA ? 'win' : ''}"><span class="flag">${a.flag}</span>${a.name}</span>
+    <span class="wm-score">${fx.ag}</span>
+    <span class="wm-status">${statusTxt}<span>${label}</span>${evTxt}</span>
+  </div>`;
+}
+
+function renderLiveWire(snapshot) {
+  const live = snapshot.filter(f => f.status === 'LIVE');
+  const finished = snapshot.filter(f => f.status === 'FINISHED');
+  const sched = snapshot.filter(f => f.status === 'SCHEDULED').length;
+  const recent = finished.slice(-9).reverse();
+  let html = live.map(wireMatchCard).join('') + recent.map(wireMatchCard).join('');
+  if (!html) html = `<p class="footnote" style="margin:0">Waiting for kickoff…</p>`;
+  if (sched) html += `<div class="wire-match finished" style="opacity:.5"><span class="wm-team">… ${sched} fixtures still to come</span><span></span><span></span><span></span></div>`;
+  $('#liveWire').innerHTML = html;
+}
+
+function applyLiveSnapshot(snapshot, sourceLabel) {
+  const folded = buildKnown(snapshot);
+  state.known = folded.known;
+  renderLiveWire(snapshot);
+  renderLiveMeta(folded, sourceLabel);
+
+  renderGroupsLive(realGroupStandings(folded.known));
+  renderThirds(null);
+
+  // odds conditioned on everything real so far (incl. in-play scorelines)
+  state.mc = monteCarlo(WC_DATA, 700, null, folded.known);
+  state.mcContext = `LIVE · ${folded.finished} REAL RESULTS${folded.live ? ' · ' + folded.live + ' IN PLAY' : ''}`;
+  renderMC();
+
+  // projection of flow + bracket — only re-sample when a match finishes
+  const sig = folded.groupFinished + ':' + folded.koFinished;
+  if (sig !== (state.live && state.live.lastSig)) {
+    if (folded.groupFinished === 72) {
+      const proj = simulateTournament(WC_DATA, folded.known);
+      renderFlow(proj);
+      renderBracket(proj);
+    } else {
+      renderFlow(null);
+      renderBracket(null);
+    }
+    if (state.live) state.live.lastSig = sig;
+  }
+}
+
+function liveSourceLabel() {
+  return state.live.kind === 'real' ? 'LIVE API (football-data.org)' : 'DEMO FEED (simulated wire)';
+}
+
+async function liveAdvance() {
+  const lv = state.live;
+  if (!lv) return;
+  if (lv.kind === 'demo') {
+    lv.tick = Math.min(lv.feed.maxTick, lv.tick + 1);
+    applyLiveSnapshot(lv.feed.stateAt(lv.tick), liveSourceLabel());
+    if (lv.tick >= lv.feed.maxTick) stopLivePlay();
+  } else {
+    try {
+      const snap = await lv.feed.snapshot();
+      applyLiveSnapshot(snap, liveSourceLabel());
+    } catch (e) {
+      $('#liveMeta').innerHTML = `<span style="color:var(--color-peri)">LIVE API ERROR — ${String(e.message || e)}. Check the Funio proxy + token (see live.php). Falling back to demo feed is available via the DEMO FEED toggle.</span>`;
+      stopLivePlay();
+    }
+  }
+}
+
+function stopLivePlay() {
+  const lv = state.live;
+  if (lv && lv.timer) { clearInterval(lv.timer); lv.timer = null; }
+  if (lv) lv.playing = false;
+  $('#livePlay').textContent = '▶ PLAY';
+  $('#livePlay').classList.remove('armed');
+}
+
+function toggleLivePlay() {
+  const lv = state.live;
+  if (!lv) return;
+  if (lv.playing) { stopLivePlay(); return; }
+  lv.playing = true;
+  $('#livePlay').textContent = '❚❚ PAUSE';
+  $('#livePlay').classList.add('armed');
+  const interval = lv.kind === 'real' ? 20000 : 1700; // poll real every 20s
+  liveAdvance();
+  lv.timer = setInterval(liveAdvance, interval);
+}
+
+function setLiveSource(kind) {
+  stopLivePlay();
+  state.live = { kind, tick: 0, playing: false, timer: null, lastSig: null,
+    feed: kind === 'demo' ? makeDemoFeed(WC_DATA) : makeRealFeed(WC_DATA) };
+  $('#srcDemo').classList.toggle('armed', kind === 'demo');
+  $('#srcReal').classList.toggle('armed', kind === 'real');
+  if (kind === 'demo') {
+    applyLiveSnapshot(state.live.feed.stateAt(0), liveSourceLabel());
+    setNote('LIVE MODE · DEMO FEED — PRESS PLAY TO RUN THE WIRE');
+  } else {
+    $('#liveWire').innerHTML = `<p class="footnote" style="margin:0">Press STEP or PLAY to pull from the live API
+      via your Funio proxy. If you haven't set a token yet, see <b>live.php</b> — the wire will report the error here.</p>`;
+    $('#liveMeta').innerHTML = '';
+    setNote('LIVE MODE · REAL API — PRESS STEP TO FETCH');
+  }
+}
+
+function startLiveMode() {
+  state.token++;
+  state.matchday = null;
+  hideTip();
+  $('#matchdayStage').classList.remove('active');
+  $('#liveStage').classList.add('active');
+  $('#liveStage').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setLiveSource('demo');
+}
+
+function exitLiveMode() {
+  stopLivePlay();
+  state.live = null;
+  state.known = null;
+  state.mcContext = '';
+  $('#liveStage').classList.remove('active');
+  resetAll();
+}
+
+// ============================================================
+//  TEAM FOCUS — who will they play?
+// ============================================================
+
+function h2hOdds(aId, bId) {
+  const [la, lb] = goalLambdas(team(aId).elo, team(bId).elo);
+  return outcomeProbs(la, lb); // [win, draw, loss] for team a
+}
+
+function barRow(labelHtml, p, dim) {
+  return `<div class="prob-row ${dim ? 'dim' : ''}">
+    <span class="pr-label">${labelHtml}</span>
+    <span class="pr-track"><span class="pr-fill" style="width:${Math.min(100, p * 100)}%"></span></span>
+    <span class="pr-val">${p > 0 && p < 0.001 ? '<0.1' : (p * 100).toFixed(p >= 0.1 ? 0 : 1)}%</span>
+  </div>`;
+}
+
+function populateFocusTeams() {
+  const sel = $('#focusTeam');
+  const ids = Object.keys(TEAMS).sort((a, b) => team(b).elo - team(a).elo);
+  sel.innerHTML = ids.map(id => `<option value="${id}">${team(id).flag} ${team(id).name} · ${groupOf(id)}</option>`).join('');
+  sel.value = 'ARG';
+}
+
+function runFocus() {
+  const teamId = $('#focusTeam').value;
+  const n = Number($('#focusRuns').value);
+  $('#focusRun').disabled = true;
+  $('#focusRun').textContent = 'RUNNING…';
+  // let the button repaint before the synchronous run
+  setTimeout(() => {
+    const t0 = performance.now();
+    const res = teamFocusMonteCarlo(WC_DATA, teamId, n, state.known || undefined);
+    state.focus = res;
+    renderFocus(res, teamId, Math.round(performance.now() - t0));
+    $('#focusRun').disabled = false;
+    $('#focusRun').textContent = 'RUN ▸';
+  }, 20);
+}
+
+function renderFocus(res, teamId, ms) {
+  const t = team(teamId);
+  const g = groupOf(teamId);
+  const n = res.n;
+  const opps = GROUPS[g].filter(id => id !== teamId);
+
+  // group opponents with single-match H2H odds
+  let h2h = '';
+  for (const oId of opps) {
+    const [w, d, l] = h2hOdds(teamId, oId);
+    const o = team(oId);
+    h2h += `<div class="h2h-row">
+      <div class="h2h-name"><span class="flag">${o.flag}</span>${o.name} <span class="mono-micro" style="color:#4d4d4d">${o.elo}</span></div>
+      <div class="h2h-bar"><span class="win" style="width:${w * 100}%"></span><span class="draw" style="width:${d * 100}%"></span><span class="loss" style="width:${l * 100}%"></span></div>
+      <div class="h2h-pct"><span>W ${(w * 100).toFixed(0)}%</span><span>D ${(d * 100).toFixed(0)}%</span><span>L ${(l * 100).toFixed(0)}%</span></div>
+    </div>`;
+  }
+
+  // group finish distribution
+  const gf = res.groupFinish;
+  const finishRows = [1, 2, 3, 4].map(pos =>
+    barRow(`Finish ${pos}${['st', 'nd', 'rd', 'th'][pos - 1]}`, gf[pos] / n)).join('');
+  const advance = res.reach.r32 / n;
+
+  // advancement odds
+  const reachRows = [
+    ['Reach R32', res.reach.r32], ['Reach R16', res.reach.r16], ['Reach QF', res.reach.qf],
+    ['Reach SF', res.reach.sf], ['Reach Final', res.reach.final], ['Win the Cup', res.reach.champion],
+  ].map(([lbl, c]) => barRow(`<span class="${lbl === 'Win the Cup' ? 'tip-strong' : ''}">${lbl}</span>`, c / n)).join('');
+
+  // knockout opponent distributions
+  const ROUND_NAME = { r32: 'ROUND OF 32', r16: 'ROUND OF 16', qf: 'QUARTER-FINAL', sf: 'SEMI-FINAL', final: 'FINAL' };
+  let oppBlocks = '';
+  for (const round of ['r32', 'r16', 'qf', 'sf', 'final']) {
+    const reach = res.reach[round];
+    if (!reach) continue;
+    const entries = Object.entries(res.opp[round]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const rows = entries.map(([oId, c]) =>
+      barRow(`<span class="flag">${team(oId).flag}</span>${team(oId).name}`, c / reach)).join('');
+    oppBlocks += `<div class="focus-round-block">
+      <div class="frb-head"><span>${ROUND_NAME[round]} OPPONENT</span><span class="reach">reach ${(100 * reach / n).toFixed(0)}%</span></div>
+      ${rows || '<p class="footnote" style="margin:0">—</p>'}
+    </div>`;
+  }
+
+  $('#focusOut').innerHTML = `
+    <div class="focus-hero">
+      <span class="fh-flag">${t.flag}</span>
+      <div>
+        <div class="fh-name">${t.name}</div>
+        <div class="fh-meta">GROUP ${g} · RATING ${t.elo} · ${n.toLocaleString()} SIMULATIONS${state.known ? ' · CONDITIONED ON LIVE RESULTS' : ''} · ${ms}ms</div>
+      </div>
+    </div>
+    <div class="focus-grid">
+      <div class="focus-panel">
+        <h4>Confirmed group opponents · single-match odds</h4>
+        ${h2h}
+        <h4 style="margin-top:16px">Group finish · advance ${(advance * 100).toFixed(0)}%</h4>
+        ${finishRows}
+      </div>
+      <div class="focus-panel">
+        <h4>How far do they go?</h4>
+        ${reachRows}
+      </div>
+      <div class="focus-panel">
+        <h4>Who do they meet? · conditional on reaching</h4>
+        ${oppBlocks}
+      </div>
+    </div>`;
+}
+
 // ---------- wiring ----------
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -873,6 +1225,19 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btnThousand').addEventListener('click', runThousand);
   $('#btnMatchday').addEventListener('click', startMatchday);
   $('#btnReset').addEventListener('click', resetAll);
+
+  // live mode
+  $('#btnLive').addEventListener('click', startLiveMode);
+  $('#srcDemo').addEventListener('click', () => setLiveSource('demo'));
+  $('#srcReal').addEventListener('click', () => setLiveSource('real'));
+  $('#livePlay').addEventListener('click', toggleLivePlay);
+  $('#liveStep').addEventListener('click', liveAdvance);
+  $('#liveExit').addEventListener('click', exitLiveMode);
+
+  // team focus
+  populateFocusTeams();
+  $('#btnFocus').addEventListener('click', () => $('#focusSection').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  $('#focusRun').addEventListener('click', runFocus);
   $('#nextRoundBtn').addEventListener('click', () => {
     const md = mdState();
     if (!md) return;
