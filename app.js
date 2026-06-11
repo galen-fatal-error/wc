@@ -717,13 +717,14 @@ function runOnce() {
   state.matchday = null;
   hideTip();
   $('#matchdayStage').classList.remove('active');
-  state.sim = simulateTournament(WC_DATA);
+  state.sim = simulateTournament(WC_DATA, state.known || undefined);
   renderGroups(state.sim);
   renderThirds(state.sim);
   renderFlow(state.sim);
   renderBracket(state.sim);
   const champ = team(state.sim.champion);
-  setNote(`ONE TOURNAMENT SIMULATED · CHAMPION <span class="live">${champ.name.toUpperCase()} ${champ.flag}</span>`);
+  const from = state.known ? ` · FROM ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'}` : '';
+  setNote(`ONE TOURNAMENT SIMULATED${from} · CHAMPION <span class="live">${champ.name.toUpperCase()} ${champ.flag}</span>`);
 }
 
 async function runThousand() {
@@ -735,11 +736,15 @@ async function runThousand() {
   await sleep(30);
   if (myToken !== state.token) return;
   const t0 = performance.now();
-  state.mc = monteCarlo(WC_DATA, 1000);
+  state.mc = monteCarlo(WC_DATA, 1000, null, state.known || undefined);
   const ms = Math.round(performance.now() - t0);
   state.sort = 'champion'; state.sortDir = -1;
+  state.mcContext = state.known
+    ? `1000 TOURNAMENTS · CONDITIONED ON ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'}`
+    : '';
   renderMC();
-  setNote(`1000 TOURNAMENTS · ${(72 * 1000 + 31 * 1000).toLocaleString()} MATCHES · ${ms}ms`);
+  const from = state.known ? ` · FROM ${knownCount()} REAL RESULTS` : '';
+  setNote(`1000 TOURNAMENTS · ${(72 * 1000 + 31 * 1000).toLocaleString()} MATCHES${from} · ${ms}ms`);
   $('#mcSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -777,7 +782,7 @@ async function startMatchday() {
   state.sim = null;
   hideTip();
   state.matchday = {
-    sim: simulateTournament(WC_DATA),
+    sim: simulateTournament(WC_DATA, state.known || undefined),
     revealed: new Set(),
     groupsDone: false,
     phase: 'groups',
@@ -794,7 +799,7 @@ async function startMatchday() {
   $('#nextRoundBtn').disabled = true;
   $('#feed').innerHTML = '';
   $('#upsetFlash').textContent = '';
-  setNote('MATCHDAY MODE · GROUP STAGE IN PROGRESS');
+  setNote(state.known ? `MATCHDAY MODE · CONTINUING FROM ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'}` : 'MATCHDAY MODE · GROUP STAGE IN PROGRESS');
   await sleep(400);
   if (myToken !== state.token) return;
 
@@ -819,6 +824,11 @@ async function startMatchday() {
 
   md.groupsDone = true;
   md.phase = 'knockout';
+  // pre-reveal any knockout matches already decided in reality (lock, not clickable)
+  for (const id of ALL_MATCH_IDS) {
+    const km = matchById(md.sim, id);
+    if (km && km.real) md.revealed.add(id);
+  }
   renderThirds(md.sim);
   renderFlow(md.sim);
   renderBracket(md.sim, mdBracketOpts());
@@ -1030,67 +1040,37 @@ function applyLiveSnapshot(snapshot, sourceLabel) {
 }
 
 function liveSourceLabel() {
-  if (state.live.kind === 'demo') return 'DEMO FEED (simulated wire)';
-  const s = state.live.feed && state.live.feed.lastSource;
+  const s = state.live && state.live.feed && state.live.feed.lastSource;
   if (s === 'fifa') return 'LIVE · api.fifa.com (official, no key)';
   if (s === 'wc26ir') return 'LIVE · worldcup26.ir (fallback)';
   return 'LIVE API';
 }
 
-async function liveAdvance() {
-  const lv = state.live;
-  if (!lv) return;
-  if (lv.kind === 'demo') {
-    lv.tick = Math.min(lv.feed.maxTick, lv.tick + 1);
-    applyLiveSnapshot(lv.feed.stateAt(lv.tick), liveSourceLabel());
-    if (lv.tick >= lv.feed.maxTick) stopLivePlay();
-  } else {
-    try {
-      const snap = await lv.feed.snapshot();
-      applyLiveSnapshot(snap, liveSourceLabel());
-    } catch (e) {
-      $('#liveMeta').innerHTML = `<span style="color:var(--color-peri)">LIVE API ERROR — ${String(e.message || e)}. The proxy tries api.fifa.com then worldcup26.ir; if both are unreachable, use the DEMO FEED toggle.</span>`;
-      stopLivePlay();
-    }
+function knownCount() {
+  if (!state.known) return 0;
+  return Object.keys(state.known.groups).length + Object.keys(state.known.ko).length;
+}
+
+// One-shot pull of the current real results. Sets state.known, which
+// every other mode (Run Once, Matchday, ×1000, Team Focus) then uses.
+async function pullLive() {
+  if (!state.live) return;
+  $('#liveRefresh').disabled = true;
+  $('#liveRefresh').textContent = 'FETCHING…';
+  try {
+    const snap = await state.live.feed.snapshot();
+    applyLiveSnapshot(snap, liveSourceLabel());
+    const f = buildKnown(snap);
+    const note = f.finished + f.live === 0
+      ? '● LIVE DATA SYNCED · NO MATCHES PLAYED YET · RUN ANY MODE TO PROJECT'
+      : `● LIVE DATA SYNCED · ${f.finished} RESULT${f.finished === 1 ? '' : 'S'}${f.live ? ' · ' + f.live + ' IN PLAY' : ''} · EVERY MODE NOW USES THIS DATA`;
+    setNote(note);
+  } catch (e) {
+    $('#liveMeta').innerHTML = `<span style="color:var(--color-peri)">LIVE API ERROR — ${String(e.message || e)}. The proxy tries api.fifa.com then worldcup26.ir.</span>`;
+    setNote('LIVE MODE · FETCH FAILED — SEE PANEL');
   }
-}
-
-function stopLivePlay() {
-  const lv = state.live;
-  if (lv && lv.timer) { clearInterval(lv.timer); lv.timer = null; }
-  if (lv) lv.playing = false;
-  $('#livePlay').textContent = '▶ PLAY';
-  $('#livePlay').classList.remove('armed');
-}
-
-function toggleLivePlay() {
-  const lv = state.live;
-  if (!lv) return;
-  if (lv.playing) { stopLivePlay(); return; }
-  lv.playing = true;
-  $('#livePlay').textContent = '❚❚ PAUSE';
-  $('#livePlay').classList.add('armed');
-  const interval = lv.kind === 'real' ? 20000 : 1700; // poll real every 20s
-  liveAdvance();
-  lv.timer = setInterval(liveAdvance, interval);
-}
-
-function setLiveSource(kind) {
-  stopLivePlay();
-  state.live = { kind, tick: 0, playing: false, timer: null, lastSig: null,
-    feed: kind === 'demo' ? makeDemoFeed(WC_DATA) : makeRealFeed(WC_DATA) };
-  $('#srcDemo').classList.toggle('armed', kind === 'demo');
-  $('#srcReal').classList.toggle('armed', kind === 'real');
-  if (kind === 'demo') {
-    applyLiveSnapshot(state.live.feed.stateAt(0), liveSourceLabel());
-    setNote('LIVE MODE · DEMO FEED — PRESS PLAY TO RUN THE WIRE');
-  } else {
-    $('#liveWire').innerHTML = `<p class="footnote" style="margin:0">Press STEP or PLAY to pull real results from
-      <b>api.fifa.com</b> (official, no key) via the same-origin proxy, with <b>worldcup26.ir</b> as automatic
-      fallback. Scores are semi-live (they trail the broadcast slightly).</p>`;
-    $('#liveMeta').innerHTML = '';
-    setNote('LIVE MODE · REAL API — PRESS STEP TO FETCH');
-  }
+  $('#liveRefresh').disabled = false;
+  $('#liveRefresh').textContent = '↻ REFRESH';
 }
 
 function startLiveMode() {
@@ -1100,16 +1080,10 @@ function startLiveMode() {
   $('#matchdayStage').classList.remove('active');
   $('#liveStage').classList.add('active');
   $('#liveStage').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setLiveSource('demo');
-}
-
-function exitLiveMode() {
-  stopLivePlay();
-  state.live = null;
-  state.known = null;
-  state.mcContext = '';
-  $('#liveStage').classList.remove('active');
-  resetAll();
+  state.live = { feed: makeRealFeed(WC_DATA), lastSig: null };
+  $('#liveMeta').innerHTML = '<span>Fetching current results from api.fifa.com…</span>';
+  $('#liveWire').innerHTML = '<p class="footnote" style="margin:0">Loading live results…</p>';
+  pullLive();
 }
 
 // ============================================================
@@ -1231,13 +1205,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btnMatchday').addEventListener('click', startMatchday);
   $('#btnReset').addEventListener('click', resetAll);
 
-  // live mode
+  // live mode — one-shot pull of real results, then every mode uses it
   $('#btnLive').addEventListener('click', startLiveMode);
-  $('#srcDemo').addEventListener('click', () => setLiveSource('demo'));
-  $('#srcReal').addEventListener('click', () => setLiveSource('real'));
-  $('#livePlay').addEventListener('click', toggleLivePlay);
-  $('#liveStep').addEventListener('click', liveAdvance);
-  $('#liveExit').addEventListener('click', exitLiveMode);
+  $('#liveRefresh').addEventListener('click', pullLive);
+  $('#liveClear').addEventListener('click', resetAll);
 
   // team focus
   populateFocusTeams();

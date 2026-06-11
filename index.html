@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 
@@ -51,19 +51,17 @@
   <section class="live-stage" id="liveStage">
     <div class="live-head">
       <div>
-        <span class="mono-micro" style="color:var(--color-peri)">LIVE MODE · REAL RESULTS WIRE</span>
+        <span class="mono-micro" style="color:var(--color-peri)">LIVE MODE · OFFICIAL RESULTS · api.fifa.com</span>
         <h3 class="subheading" id="liveTitle">Live results</h3>
       </div>
       <div class="live-controls">
-        <span class="seg">
-          <button class="pill-btn seg-btn armed" id="srcDemo">DEMO FEED</button>
-          <button class="pill-btn seg-btn ghost" id="srcReal">LIVE API</button>
-        </span>
-        <button class="pill-btn" id="livePlay">▶ PLAY</button>
-        <button class="pill-btn ghost" id="liveStep">STEP ▸</button>
-        <button class="pill-btn ghost" id="liveExit">EXIT</button>
+        <button class="pill-btn" id="liveRefresh">↻ REFRESH</button>
+        <button class="pill-btn ghost" id="liveClear">CLEAR REAL DATA</button>
       </div>
     </div>
+    <p class="footnote" style="margin:0 0 12px">Pulls the current real World Cup results and locks them in. Every
+    mode — Run Once, Matchday, ×1000, Team Focus — then projects forward from this real data. Scores are semi-live
+    (they trail the broadcast slightly).</p>
     <div class="live-meta" id="liveMeta"></div>
     <div class="live-wire" id="liveWire"></div>
   </section>
@@ -146,9 +144,9 @@
 
 </main>
 
-<script src="data.js?v=8"></script>
-<script src="engine.js?v=8"></script>
-<script src="live.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="data.js?v=9"></script>
+<script src="engine.js?v=9"></script>
+<script src="live.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
