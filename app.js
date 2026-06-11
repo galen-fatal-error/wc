@@ -1030,7 +1030,11 @@ function applyLiveSnapshot(snapshot, sourceLabel) {
 }
 
 function liveSourceLabel() {
-  return state.live.kind === 'real' ? 'LIVE API (football-data.org)' : 'DEMO FEED (simulated wire)';
+  if (state.live.kind === 'demo') return 'DEMO FEED (simulated wire)';
+  const s = state.live.feed && state.live.feed.lastSource;
+  if (s === 'fifa') return 'LIVE · api.fifa.com (official, no key)';
+  if (s === 'wc26ir') return 'LIVE · worldcup26.ir (fallback)';
+  return 'LIVE API';
 }
 
 async function liveAdvance() {
@@ -1045,7 +1049,7 @@ async function liveAdvance() {
       const snap = await lv.feed.snapshot();
       applyLiveSnapshot(snap, liveSourceLabel());
     } catch (e) {
-      $('#liveMeta').innerHTML = `<span style="color:var(--color-peri)">LIVE API ERROR — ${String(e.message || e)}. Check the Funio proxy + token (see live.php). Falling back to demo feed is available via the DEMO FEED toggle.</span>`;
+      $('#liveMeta').innerHTML = `<span style="color:var(--color-peri)">LIVE API ERROR — ${String(e.message || e)}. The proxy tries api.fifa.com then worldcup26.ir; if both are unreachable, use the DEMO FEED toggle.</span>`;
       stopLivePlay();
     }
   }
@@ -1081,8 +1085,9 @@ function setLiveSource(kind) {
     applyLiveSnapshot(state.live.feed.stateAt(0), liveSourceLabel());
     setNote('LIVE MODE · DEMO FEED — PRESS PLAY TO RUN THE WIRE');
   } else {
-    $('#liveWire').innerHTML = `<p class="footnote" style="margin:0">Press STEP or PLAY to pull from the live API
-      via your Funio proxy. If you haven't set a token yet, see <b>live.php</b> — the wire will report the error here.</p>`;
+    $('#liveWire').innerHTML = `<p class="footnote" style="margin:0">Press STEP or PLAY to pull real results from
+      <b>api.fifa.com</b> (official, no key) via the same-origin proxy, with <b>worldcup26.ir</b> as automatic
+      fallback. Scores are semi-live (they trail the broadcast slightly).</p>`;
     $('#liveMeta').innerHTML = '';
     setNote('LIVE MODE · REAL API — PRESS STEP TO FETCH');
   }

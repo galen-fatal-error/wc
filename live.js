@@ -146,14 +146,30 @@ function makeDemoFeed(data) {
 }
 
 // ============================================================
-//  REAL FEED — football-data.org via a same-origin proxy.
-//  The proxy (live.php on the Funio docroot) injects the API
-//  token server-side and adds CORS, so this is a plain
-//  same-origin fetch. Set PROXY_URL to '' to disable.
+//  REAL FEED — via a same-origin proxy (live.php) that returns
+//    {"source":"fifa"|"wc26ir","data": <raw upstream JSON>}
+//  Primary upstream is the official FIFA API (true live
+//  status/minute/score, no key); worldcup26.ir is the fallback.
+//  Both number matches 1–104 per FIFA's schedule, so a knockout
+//  match maps to our bracket by its number directly.
 // ============================================================
 const REAL_PROXY_URL = 'live.php';
 
-// football-data.org team names -> our FIFA ids. Extend as needed.
+// FIFA IdStage -> our round key (2026 World Cup stage ids)
+const FIFA_STAGE = {
+  289273: 'group', 289287: 'r32', 289288: 'r16',
+  289289: 'qf', 289290: 'sf', 289291: 'third', 289292: 'final',
+};
+
+// our match-number -> round (for the worldcup26.ir id-banded fallback)
+function roundByMatchNo(no) {
+  const n = Number(no);
+  if (n <= 72) return 'group'; if (n <= 88) return 'r32'; if (n <= 96) return 'r16';
+  if (n <= 100) return 'qf'; if (n <= 102) return 'sf'; if (n === 103) return 'third';
+  return 'final';
+}
+
+// English team name -> our FIFA id (for the worldcup26.ir fallback)
 const NAME_TO_ID = (() => {
   const m = {};
   for (const id of Object.keys(TEAMS)) m[TEAMS[id].name.toLowerCase()] = id;
@@ -162,6 +178,7 @@ const NAME_TO_ID = (() => {
     'usa': 'USA', 'united states': 'USA', 'turkey': 'TUR', 'türkiye': 'TUR', 'turkiye': 'TUR',
     "côte d'ivoire": 'CIV', 'ivory coast': 'CIV', 'cote d ivoire': 'CIV',
     'czech republic': 'CZE', 'czechia': 'CZE', 'dr congo': 'COD', 'congo dr': 'COD',
+    'democratic republic of the congo': 'COD',
     'cape verde': 'CPV', 'cabo verde': 'CPV', 'curacao': 'CUW', 'curaçao': 'CUW',
     'bosnia and herzegovina': 'BIH', 'bosnia & herz.': 'BIH', 'bosnia-herzegovina': 'BIH',
     'south africa': 'RSA', 'saudi arabia': 'KSA', 'new zealand': 'NZL',
@@ -171,101 +188,100 @@ const NAME_TO_ID = (() => {
 
 function nameToId(name) {
   if (!name) return null;
-  return NAME_TO_ID[name.toLowerCase().trim()] || null;
+  return NAME_TO_ID[String(name).toLowerCase().trim()] || null;
 }
 
-// football-data team objects carry a 3-letter `tla` that usually equals
-// our FIFA id — prefer it, fall back to the name/alias map.
-function teamObjToId(obj) {
-  if (!obj) return null;
-  if (obj.tla && TEAMS[obj.tla]) return obj.tla;
-  return nameToId(obj.shortName) || nameToId(obj.name);
+// FIFA delivers a 3-letter IdCountry that usually equals our id.
+function fifaCodeToId(code) {
+  if (!code) return null;
+  if (TEAMS[code]) return code;
+  return nameToId(code);
 }
 
-// map football-data status -> our status
-function mapStatus(s) {
-  if (s === 'FINISHED' || s === 'AWARDED') return 'FINISHED';
-  if (s === 'IN_PLAY' || s === 'PAUSED' || s === 'EXTRA_TIME' || s === 'PENALTY_SHOOTOUT') return 'LIVE';
-  return 'SCHEDULED';
+function parseMinute(s) {
+  if (s == null) return 0;
+  const n = parseInt(String(s).replace(/[^0-9]/g, ''), 10);
+  return isNaN(n) ? 0 : n;
 }
 
-const KO_STAGE_ROUND = {
-  LAST_32: 'r32', ROUND_OF_32: 'r32', LAST_16: 'r16', ROUND_OF_16: 'r16',
-  QUARTER_FINALS: 'qf', QUARTER_FINAL: 'qf', SEMI_FINALS: 'sf', SEMI_FINAL: 'sf',
-  THIRD_PLACE: 'third', FINAL: 'final',
-};
+// ---- official FIFA calendar match -> normalized fixture ----
+function parseFifaMatch(m) {
+  const home = fifaCodeToId(m.Home && m.Home.IdCountry);
+  const away = fifaCodeToId(m.Away && m.Away.IdCountry);
+  if (!home || !away) return null; // unresolved knockout placeholder
+  const stage = FIFA_STAGE[m.IdStage] || roundByMatchNo(m.MatchNumber);
+  const status = m.MatchStatus === 0 ? 'FINISHED' : m.MatchStatus === 3 ? 'LIVE' : 'SCHEDULED';
+  const hg = m.Home && m.Home.Score != null ? m.Home.Score : 0;
+  const ag = m.Away && m.Away.Score != null ? m.Away.Score : 0;
+  const hadPens = m.ResultType === 2 || ((m.HomeTeamPenaltyScore || 0) + (m.AwayTeamPenaltyScore || 0) > 0);
+  const pens = hadPens ? { h: m.HomeTeamPenaltyScore || 0, a: m.AwayTeamPenaltyScore || 0 } : null;
+  let winner = null;
+  if (m.Winner) winner = m.Winner === (m.Home && m.Home.IdTeam) ? home : (m.Winner === (m.Away && m.Away.IdTeam) ? away : null);
+  else if (status === 'FINISHED') winner = hg > ag ? home : (ag > hg ? away : (pens ? (pens.h > pens.a ? home : away) : null));
+
+  const item = { stage, home, away, status, minute: parseMinute(m.MatchTime), hg, ag, events: [] };
+  if (stage === 'group') {
+    item.groupKey = groupOfId(home);
+    item.id = 'g:' + item.groupKey + ':' + home + ':' + away;
+  } else {
+    item.matchNo = String(m.MatchNumber);
+    item.id = 'k:' + item.matchNo;
+    if (status === 'FINISHED') { item.winner = winner; item.et = !!pens; item.pens = pens; item.cards = []; }
+  }
+  return item;
+}
+
+// ---- worldcup26.ir game -> normalized fixture (fallback) ----
+function parseWc26Game(g) {
+  const home = nameToId(g.home_team_name_en);
+  const away = nameToId(g.away_team_name_en);
+  if (!home || !away) return null;
+  const no = parseInt(g.id, 10);
+  const stage = roundByMatchNo(no);
+  const finished = String(g.finished).toUpperCase() === 'TRUE';
+  const te = String(g.time_elapsed == null ? '' : g.time_elapsed).toLowerCase();
+  const live = !finished && te !== '' && te !== 'notstarted' && te !== 'null';
+  const status = finished ? 'FINISHED' : live ? 'LIVE' : 'SCHEDULED';
+  const hg = parseInt(g.home_score, 10) || 0;
+  const ag = parseInt(g.away_score, 10) || 0;
+
+  const item = { stage, home, away, status, minute: parseMinute(te), hg, ag, events: [] };
+  if (stage === 'group') {
+    item.groupKey = groupOfId(home);
+    item.id = 'g:' + item.groupKey + ':' + home + ':' + away;
+  } else {
+    item.matchNo = String(no);
+    item.id = 'k:' + no;
+    if (finished) { item.winner = hg > ag ? home : (ag > hg ? away : null); item.et = false; item.pens = null; item.cards = []; }
+  }
+  return item;
+}
 
 function makeRealFeed(data, proxyUrl) {
-  const url = proxyUrl || REAL_PROXY_URL;
-
-  // Map a real KO fixture (two team ids, round) to one of our match
-  // numbers by matching the pair against a projection's resolved slots.
-  function koMatchNo(round, a, b, known) {
-    const proj = simulateTournament(data, known);
-    const ids = ROUND_IDS_FOR(round);
-    for (const no of ids) {
-      const m = proj.rounds[round].find(x => x.match === no);
-      if (!m) continue;
-      const set = new Set([m.home, m.away]);
-      if (set.has(a) && set.has(b)) return no;
-    }
-    return null;
-  }
-  function ROUND_IDS_FOR(round) {
-    return data.BRACKET[round].map(s => s.match);
-  }
-
-  return {
+  const feed = {
     kind: 'real',
-    url,
+    url: proxyUrl || REAL_PROXY_URL,
+    lastSource: null,
     async snapshot() {
-      const res = await fetch(url, { headers: { 'accept': 'application/json' } });
-      if (!res.ok) throw new Error(`proxy ${res.status}: ${await res.text().catch(() => '')}`.slice(0, 200));
-      const data_ = await res.json();
-      const matches = data_.matches || data_;
-      // first pass: groups (so KO mapping can use locked group results)
-      const out = [];
-      const groupItems = [];
-      for (const mt of matches) {
-        const home = teamObjToId(mt.homeTeam);
-        const away = teamObjToId(mt.awayTeam);
-        if (!home || !away) continue;
-        const status = mapStatus(mt.status);
-        const ft = mt.score && mt.score.fullTime || {};
-        const hg = ft.home != null ? ft.home : 0;
-        const ag = ft.away != null ? ft.away : 0;
-        const minute = mt.minute || (mt.injuryTime ? 90 + mt.injuryTime : 0);
-        const isGroup = (mt.stage === 'GROUP_STAGE') || /^GROUP/.test(mt.group || '');
-        const item = {
-          stage: isGroup ? 'group' : 'ko', home, away, status,
-          minute: Number(minute) || 0, hg, ag,
-          events: (mt.goals || []).map(g => ({ minute: g.minute, type: 'goal', team: teamObjToId(g.team) })),
-          _round: KO_STAGE_ROUND[mt.stage] || null,
-          _winner: mt.score && mt.score.winner, // 'HOME_TEAM'|'AWAY_TEAM'|'DRAW'
-        };
-        if (isGroup) { item.groupKey = groupOfId(home); groupItems.push(item); }
-        out.push(item);
+      const res = await fetch(feed.url, { headers: { accept: 'application/json' } });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(('proxy ' + res.status + ': ' + t).slice(0, 200));
       }
-      // build known from finished groups to anchor KO mapping
-      const groupKnown = buildKnown(out.filter(o => o.stage === 'group')).known;
-      for (const item of out) {
-        if (item.stage === 'group') {
-          item.id = `g:${item.groupKey}:${item.home}:${item.away}`;
-        } else {
-          const no = item._round
-            ? koMatchNo(item._round, item.home, item.away, groupKnown)
-            : null;
-          item.matchNo = no;
-          item.id = `k:${no || item.home + item.away}`;
-          if (item.status === 'FINISHED') {
-            item.winner = item._winner === 'AWAY_TEAM' ? item.away : item.home;
-            item.et = false; item.pens = null; item.cards = [];
-          }
-        }
+      const payload = await res.json();
+      const source = payload && payload.source;
+      const data_ = (payload && payload.data) || payload;
+      feed.lastSource = source;
+      let items;
+      if (source === 'wc26ir') {
+        items = (data_.games || []).map(parseWc26Game);
+      } else {
+        items = (data_.Results || []).map(parseFifaMatch);
       }
-      return out.filter(o => o.stage === 'group' || o.matchNo);
+      return items.filter(Boolean);
     },
   };
+  return feed;
 }
 
 // groupOfId needs TEAMS/GROUPS; defined in app scope too, mirror here.
