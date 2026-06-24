@@ -35,6 +35,8 @@ const state = {
   predict: null,        // slot-occupancy monte carlo: { slots, n }
   predictBusy: false,
   qualOdds: null,       // monte carlo qualification odds: { tally, n }
+  confirmed: null,      // Set of teamIds with a clinched knockout place (real)
+  confirmedWinner: null,// Set of teamIds that have clinched top spot (real)
 };
 
 const team = id => TEAMS[id];
@@ -188,6 +190,77 @@ for (const g of Object.keys(GROUPS)) {
   ];
 }
 
+// ---------- clinch / confirmed-placement logic ----------
+// From REAL finished group results only, decide which teams have already
+// mathematically secured a knockout place (guaranteed top-2) — and which
+// have secured top spot. Conservative on tiebreaks: when teams could tie on
+// points, the tie is assumed AGAINST the team, so we only ever flag a place
+// that is truly locked regardless of remaining scorelines.
+function groupClinch(g) {
+  const known = state.known;
+  const ids = GROUPS[g];
+  const pairs = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) pairs.push([ids[i], ids[j]]);
+  const base = {}; ids.forEach(id => { base[id] = 0; });
+  const remaining = [];
+  let played = 0;
+  for (const [a, b] of pairs) {
+    const kf = known && known.groups[pairKey(a, b)];
+    if (kf) {
+      const ag = kf.home === a ? kf.hg : kf.ag, bg = kf.home === a ? kf.ag : kf.hg;
+      if (ag > bg) base[a] += 3; else if (bg > ag) base[b] += 3; else { base[a] += 1; base[b] += 1; }
+      played++;
+    } else remaining.push([a, b]);
+  }
+  const status = {};
+  ids.forEach(id => { status[id] = { through: false, winner: false }; });
+  if (!played) return status; // nothing real yet → nothing confirmed
+
+  ids.forEach(id => { status[id] = { through: true, winner: true }; });
+  const k = remaining.length;
+  const combos = Math.pow(3, k);
+  for (let c = 0; c < combos; c++) {
+    const pts = Object.assign({}, base);
+    let n = c;
+    for (let r = 0; r < k; r++) {
+      const o = n % 3; n = (n / 3) | 0;
+      const [a, b] = remaining[r];
+      if (o === 0) pts[a] += 3; else if (o === 1) pts[b] += 3; else { pts[a] += 1; pts[b] += 1; }
+    }
+    for (const id of ids) {
+      let above = 0, equal = 0;
+      for (const o of ids) {
+        if (o === id) continue;
+        if (pts[o] > pts[id]) above++; else if (pts[o] === pts[id]) equal++;
+      }
+      const worstRank = 1 + above + equal; // ties counted against this team
+      if (worstRank > 2) status[id].through = false;
+      if (worstRank > 1) status[id].winner = false;
+    }
+  }
+  return status;
+}
+
+// teams that have secured a knockout berth / top spot, cached by real data
+let confirmSig = null;
+function ensureConfirmed() {
+  const sig = state.known ? JSON.stringify(state.known.groups) : 'none';
+  if (state.confirmed && confirmSig === sig) return;
+  confirmSig = sig;
+  const through = new Set(), winner = new Set();
+  if (state.known) {
+    for (const g of Object.keys(GROUPS)) {
+      const st = groupClinch(g);
+      for (const id of GROUPS[g]) {
+        if (st[id] && st[id].through) through.add(id);
+        if (st[id] && st[id].winner) winner.add(id);
+      }
+    }
+  }
+  state.confirmed = through;
+  state.confirmedWinner = winner;
+}
+
 // The games to show for a group given the current sim / real data and an
 // optional reveal set (matchday animation). Returns { pairKey -> result }.
 function groupShownGames(g, sim, revealedGames) {
@@ -257,6 +330,7 @@ function groupGamesHtml(g, shown) {
 function renderGroups(sim, revealedGames) {
   state.groupsView = { sim, revealedGames: revealedGames || null };
   ensureQualOdds();
+  ensureConfirmed();
   const grid = $('#groupsGrid');
   grid.innerHTML = '';
   for (const g of Object.keys(GROUPS)) {
@@ -279,14 +353,19 @@ function renderGroups(sim, revealedGames) {
       table = tableFromGames(g, shown);
     }
 
+    const confirmed = state.confirmed || new Set();
+    const confWinner = state.confirmedWinner || new Set();
     let rowsHtml = '';
     table.forEach((row, i) => {
       const t = team(row.id);
       const cls = !playedCount ? ''
         : i === 0 ? 'row-q1' : i === 1 ? 'row-q2'
         : (i === 2 && done && thirdQualified) ? 'row-q3-in' : 'row-out';
-      rowsHtml += `<tr class="${cls}" data-team="${t.id}">
-        <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
+      const isConf = confirmed.has(t.id);
+      const conf = isConf ? ' row-confirmed' : '';
+      const check = isConf ? `<span class="conf-check" title="${confWinner.has(t.id) ? 'Top spot secured' : 'Knockout place secured'}">✓</span>` : '';
+      rowsHtml += `<tr class="${cls}${conf}" data-team="${t.id}">
+        <td class="team-cell">${check}<span class="flag">${t.flag}</span>${t.name}</td>
         <td>${row.w}-${row.d}-${row.l}</td>
         <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
         <td class="pts-cell">${row.pts}</td>
@@ -322,6 +401,12 @@ function groupRowTip(teamId) {
     chance of reaching the knockout round${state.known ? ' (from current real results)' : ''}.</span>` : '';
 
   let html = `<span class="tip-head">${t.flag} ${t.name} · GROUP ${g}</span>`;
+
+  ensureConfirmed();
+  if (state.confirmed && state.confirmed.has(teamId)) {
+    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Place secured</span> —
+      ${state.confirmedWinner.has(teamId) ? 'has clinched top spot in the group' : 'mathematically through to the round of 32'} from real results.</span>`;
+  }
 
   // provisional / pre-sim view: standings from games shown so far
   if (!done) {
@@ -596,6 +681,11 @@ function renderBracket(sim, opts = {}) {
     if (sim) setKoStatus('⚽ MATCHDAY · one simulated tournament, with scores.');
   }
   syncKoModeButtons();
+  ensureConfirmed();
+  // a team is "confirmed" into the R32 box it occupies if it has clinched a
+  // knockout place from real results (only meaningful on R32 group slots)
+  const confSet = state.confirmed || new Set();
+  const confirmedSlot = (id, tid) => ROUND_OF[id] === 'r32' && tid && confSet.has(tid) ? ' confirmed' : '';
 
   const refKnown = ref => {
     const [kind, key] = ref.split(':');
@@ -604,18 +694,19 @@ function renderBracket(sim, opts = {}) {
   };
 
   // ----- matchday slot (simulated team + score) -----
-  function slotHtml(ref, m, side) {
+  function slotHtml(ref, m, side, id) {
     let name = `<span class="slot-origin">${shortSeed(ref)}</span>`;
     let score = '', cls = '', pen = '';
     if (sim && m && refKnown(ref)) {
       const tid = side === 'home' ? m.home : m.away;
       const t = team(tid);
+      cls += confirmedSlot(id, tid);
       name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       if (revealed.has(m.match)) {
         const g = side === 'home' ? m.hg : m.ag;
         score = `<span class="slot-score">${g}</span>`;
         const won = m.winner === tid;
-        cls = won ? 'winner' : 'loser';
+        cls += won ? ' winner' : ' loser';
         if (m.pens) pen = `<span class="pen-note">${side === 'home' ? m.pens.h : m.pens.a}p</span>`;
       }
     }
@@ -631,7 +722,7 @@ function renderBracket(sim, opts = {}) {
     }
     const t = team(occ.id);
     const won = pm.winnerId === occ.id;
-    return `<div class="match-slot predict ${won ? 'winner' : ''}">
+    return `<div class="match-slot predict ${won ? 'winner' : ''}${confirmedSlot(id, occ.id)}">
       <span class="slot-origin">${shortSeed(ref, occ.id)}</span>
       <span class="flag">${t.flag}</span>
       <span class="slot-name">${t.name}</span>
@@ -658,8 +749,8 @@ function renderBracket(sim, opts = {}) {
     const clickable = interactive && !played && !live && m && refKnown(spec.home) && refKnown(spec.away);
     return `<div class="match-box ${r32} ${played ? 'match-played' : ''} ${live ? 'match-live pulsing' : ''} ${realLock ? 'real-locked' : ''} ${liveReal ? 'live-real' : ''} ${clickable ? 'clickable' : ''}" data-mid="${id}" data-side="${side}">
       <span class="match-no">M${id}${m && m.et && played ? ' · AET' : ''}</span>
-      ${slotHtml(spec.home, m, 'home')}
-      ${slotHtml(spec.away, m, 'away')}
+      ${slotHtml(spec.home, m, 'home', id)}
+      ${slotHtml(spec.away, m, 'away', id)}
     </div>`;
   }
 

@@ -13,6 +13,7 @@
   --color-paper: #ffffff;
   --color-peri: #7089ba;
   --color-real: #4fb477;
+  --color-clinch: #d8a531;
 
   --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1462,3 +1463,31 @@ h3.subheading {
   .group-games { gap: 4px 8px; }
   .gg { font-size: 11px; }
 }
+
+/* ============================================================
+   CONFIRMED / CLINCHED PLACEMENTS (from real results)
+   ============================================================ */
+
+/* group-stage rows of teams that have mathematically secured a place */
+.group-table tr.row-confirmed td { background: rgba(216, 165, 49, 0.10); }
+.group-table tr.row-confirmed td.team-cell { color: var(--color-clinch); }
+.group-table tr.row-confirmed td.team-cell::before { content: none; }
+.group-table tr.row-confirmed td.pts-cell { color: var(--color-clinch); }
+.conf-check { color: var(--color-clinch); font-weight: 700; margin-right: 5px; }
+
+/* knockout R32 slot occupied by a confirmed team */
+.bracket .match-slot.confirmed,
+.bracket-stack .match-slot.confirmed { color: var(--color-paper); }
+.bracket .match-box.r32 .match-slot.confirmed,
+.bracket-stack .match-box.r32 .match-slot.confirmed {
+  border-color: var(--color-clinch);
+  background: rgba(216, 165, 49, 0.12);
+}
+.match-slot.confirmed .slot-name { color: var(--color-clinch); font-weight: 700; }
+
+/* tooltip line */
+.tip-confirmed { color: var(--color-clinch); }
+
+/* keys in the section intros */
+.clinch-key { color: var(--color-clinch); font-weight: 700; }
+.clinch-key-text { color: var(--color-clinch); }

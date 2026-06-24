@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 
@@ -54,7 +54,8 @@
     <p class="footnote" style="margin-top:6px">Single round-robin — each group's six games are listed in matchday order
     under its table. Top two from every group advance, plus the eight best third-placed sides — 32 of 48 go through.
     <span class="real-key">▢</span> A <span class="real-key-text">coloured outline marks a real result</span> already
-    played at the tournament; everything else is simulated.</p>
+    played; <span class="clinch-key">✓</span> <span class="clinch-key-text">gold marks a place mathematically
+    secured</span> from those results; everything else is simulated.</p>
     <div class="groups-grid" id="groupsGrid"></div>
     <div class="thirds-strip" id="thirdsStrip"></div>
   </section>
@@ -83,8 +84,9 @@
     32 on the outside, the final at the centre. Two ways to read it:
     <span style="color:var(--color-peri)">Matchday</span> fills every slot from a single simulated tournament with its
     scoreline; <span style="color:var(--color-peri)">Predictive</span> projects forward from the real, up-to-date
-    results to show the most likely team for each slot and how likely it is to land there. Hover or tap any fixture
-    for detail.</p>
+    results to show the most likely team for each slot and how likely it is to land there. Round-of-32 slots held by a
+    team that has <span class="clinch-key-text">already secured its place</span> are outlined in gold. Hover or tap any
+    fixture for detail.</p>
 
     <div class="ko-mode-bar">
       <div class="ko-mode-toggle" id="koModeToggle">
@@ -138,9 +140,9 @@
 
 </main>
 
-<script src="data.js?v=13"></script>
-<script src="engine.js?v=13"></script>
-<script src="live.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="data.js?v=14"></script>
+<script src="engine.js?v=14"></script>
+<script src="live.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
