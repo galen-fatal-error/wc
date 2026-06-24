@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=16">
 </head>
 <body>
 
@@ -54,8 +54,9 @@
     <p class="footnote" style="margin-top:6px">Single round-robin — each group's six games are listed in matchday order
     under its table. Top two from every group advance, plus the eight best third-placed sides — 32 of 48 go through.
     <span class="real-key">▢</span> A <span class="real-key-text">coloured outline marks a real result</span> already
-    played; <span class="clinch-key">✓</span> <span class="clinch-key-text">gold marks a place mathematically
-    secured</span> from those results; everything else is simulated.</p>
+    played; <span class="clinch-key">✓</span> <span class="clinch-key-text">gold marks a finishing position
+    mathematically locked</span> (1st or 2nd settled) from those results — a team that is through but whose 1st-vs-2nd
+    order is still open is not gold. Everything else is simulated.</p>
     <div class="groups-grid" id="groupsGrid"></div>
     <div class="thirds-strip" id="thirdsStrip"></div>
   </section>
@@ -141,9 +142,9 @@
 
 </main>
 
-<script src="data.js?v=15"></script>
-<script src="engine.js?v=15"></script>
-<script src="live.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="data.js?v=16"></script>
+<script src="engine.js?v=16"></script>
+<script src="live.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

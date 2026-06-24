@@ -37,6 +37,7 @@ const state = {
   qualOdds: null,       // monte carlo qualification odds: { tally, n }
   confirmed: null,      // Set of teamIds with a clinched knockout place (real)
   confirmedWinner: null,// Set of teamIds that have clinched top spot (real)
+  confirmedPos: null,   // Set of teamIds whose EXACT finishing position is locked
   lockWinnerGroup: null,// { group -> teamId } locked into the 1x R32 slot
   lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
 };
@@ -271,10 +272,12 @@ function ensureConfirmed() {
       }
     }
   }
-  state.confirmed = through;          // secured advancement (group-row gold)
+  state.confirmed = through;          // secured advancement (top-2), order may be open
   state.confirmedWinner = winner;     // secured top spot
   state.lockWinnerGroup = winnerByGroup;   // g -> team locked into 1x slot
   state.lockRunnerGroup = runnerByGroup;   // g -> team locked into 2x slot
+  // gold everywhere = EXACT finishing position locked (1st or 2nd settled)
+  state.confirmedPos = new Set([...Object.values(winnerByGroup), ...Object.values(runnerByGroup)]);
 }
 
 // The games to show for a group given the current sim / real data and an
@@ -369,7 +372,7 @@ function renderGroups(sim, revealedGames) {
       table = tableFromGames(g, shown);
     }
 
-    const confirmed = state.confirmed || new Set();
+    const confirmedPos = state.confirmedPos || new Set();
     const confWinner = state.confirmedWinner || new Set();
     let rowsHtml = '';
     table.forEach((row, i) => {
@@ -377,9 +380,9 @@ function renderGroups(sim, revealedGames) {
       const cls = !playedCount ? ''
         : i === 0 ? 'row-q1' : i === 1 ? 'row-q2'
         : (i === 2 && done && thirdQualified) ? 'row-q3-in' : 'row-out';
-      const isConf = confirmed.has(t.id);
+      const isConf = confirmedPos.has(t.id); // gold only when exact position locked
       const conf = isConf ? ' row-confirmed' : '';
-      const check = isConf ? `<span class="conf-check" title="${confWinner.has(t.id) ? 'Top spot secured' : 'Knockout place secured'}">✓</span>` : '';
+      const check = isConf ? `<span class="conf-check" title="${confWinner.has(t.id) ? 'Top spot secured' : 'Runner-up place secured'}">✓</span>` : '';
       rowsHtml += `<tr class="${cls}${conf}" data-team="${t.id}">
         <td class="team-cell">${check}<span class="flag">${t.flag}</span>${t.name}</td>
         <td>${row.w}-${row.d}-${row.l}</td>
@@ -419,9 +422,11 @@ function groupRowTip(teamId) {
   let html = `<span class="tip-head">${t.flag} ${t.name} · GROUP ${g}</span>`;
 
   ensureConfirmed();
-  if (state.confirmed && state.confirmed.has(teamId)) {
-    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Place secured</span> —
-      ${state.confirmedWinner.has(teamId) ? 'has clinched top spot in the group' : 'mathematically through to the round of 32'} from real results.</span>`;
+  if (state.confirmedPos && state.confirmedPos.has(teamId)) {
+    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Position secured</span> —
+      ${state.confirmedWinner.has(teamId) ? 'has clinched top spot in the group' : 'has clinched the runner-up place'} from real results.</span>`;
+  } else if (state.confirmed && state.confirmed.has(teamId)) {
+    html += `<span class="tip-row">Through to the round of 32, but the finishing position (1st vs 2nd) is not yet settled.</span>`;
   }
 
   // provisional / pre-sim view: standings from games shown so far
