@@ -219,6 +219,27 @@ function groupClinch(g) {
   ids.forEach(id => { status[id] = { through: false, winner: false, runnerUp: false }; });
   if (!played) return status; // nothing real yet → nothing confirmed
 
+  // Group finished: standings are final — settle everything with the real
+  // FIFA tiebreakers (points → GD → goals → head-to-head), not the points-only
+  // worst-case used while games remain. (A runner-up tied on points but ahead
+  // on GD is now correctly locked.)
+  if (remaining.length === 0) {
+    const stats = {};
+    ids.forEach(id => { stats[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }; });
+    const matches = [];
+    for (const [a, b] of pairs) {
+      const kf = known.groups[pairKey(a, b)];
+      const ag = kf.home === a ? kf.hg : kf.ag, bg = kf.home === a ? kf.ag : kf.hg;
+      applyResult(stats[a], ag, bg); applyResult(stats[b], bg, ag);
+      matches.push({ home: a, away: b, hg: ag, ag: bg });
+    }
+    const table = rankGroup(Object.values(stats), matches);
+    table.forEach((row, i) => {
+      status[row.id] = { through: i < 2, winner: i === 0, runnerUp: i === 1, neverFirst: i > 0 };
+    });
+    return status;
+  }
+
   // through: guaranteed top-2 (advancement). winner: guaranteed 1st.
   // neverFirst: cannot finish 1st in any completion (someone always above).
   ids.forEach(id => { status[id] = { through: true, winner: true, neverFirst: true }; });
@@ -718,6 +739,15 @@ function renderBracket(sim, opts = {}) {
     if (kind === 'RU' && lockR[g]) return ' confirmed';
     return '';
   };
+  // the team that has mathematically locked this R32 slot, from real results
+  // (so secured fixtures show even before any simulation is run)
+  const lockedSlotTeam = (id, ref) => {
+    if (ROUND_OF[id] !== 'r32') return null;
+    const [kind, g] = ref.split(':');
+    if (kind === 'W') return lockW[g] || null;
+    if (kind === 'RU') return lockR[g] || null;
+    return null;
+  };
 
   const refKnown = ref => {
     const [kind, key] = ref.split(':');
@@ -740,6 +770,16 @@ function renderBracket(sim, opts = {}) {
         const won = m.winner === tid;
         cls += won ? ' winner' : ' loser';
         if (m.pens) pen = `<span class="pen-note">${side === 'home' ? m.pens.h : m.pens.a}p</span>`;
+      }
+    } else {
+      // no simulated placement yet — but if real results have locked this
+      // slot, show the secured team there (gold), so confirmed fixtures
+      // appear on a fresh sheet without running a simulation
+      const lockTid = lockedSlotTeam(id, ref);
+      if (lockTid) {
+        const t = team(lockTid);
+        cls += ' confirmed';
+        name = `<span class="slot-origin">${shortSeed(ref, lockTid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       }
     }
     return `<div class="match-slot ${cls}">${name}${pen}${score}</div>`;
@@ -1048,10 +1088,13 @@ async function refreshRealData(announce) {
     setRealNote(`<span class="real-on">● real data on · <b>${folded.finished}</b> result${folded.finished === 1 ? '' : 's'} locked${folded.live ? ` · <b>${folded.live}</b> in play` : ''} · every simulation continues from here</span>`);
   }
 
-  // refresh current view with the new reality, unless mid-animation
+  // refresh current view with the new reality, unless mid-animation.
+  // re-render the bracket even with no simulation so secured fixtures show.
   if (!state.matchday) {
     renderGroups(state.sim || null);
-    if (state.sim) { renderThirds(state.sim); renderFlow(state.sim); renderBracket(state.sim); }
+    if (state.sim) { renderThirds(state.sim); renderFlow(state.sim); }
+    if (state.koMode === 'predict') enterPredict();
+    else renderBracket(state.sim || null);
   }
   if (announce) setNote(folded && folded.finished + folded.live ? `REAL DATA SYNCED · ${knownCount()} RESULT${knownCount() === 1 ? '' : 'S'} LOCKED` : 'REAL DATA SYNCED');
 }
