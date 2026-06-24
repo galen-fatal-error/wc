@@ -360,7 +360,8 @@ h3.subheading {
 .bracket {
   display: flex;
   gap: 0;
-  min-width: 1340px;
+  min-width: 0;
+  width: 100%;
   align-items: stretch;
 }
 
@@ -368,8 +369,8 @@ h3.subheading {
   display: flex;
   flex-direction: column;
   justify-content: space-around;
-  flex: 1;
-  min-width: 158px;
+  flex: 1 1 0;
+  min-width: 0;
   position: relative;
 }
 
@@ -392,10 +393,13 @@ h3.subheading {
 .match-box {
   border: 1px dashed var(--color-graphite);
   background: var(--color-carbon);
-  margin: 5px 10px;
+  margin: 4px 6px;
   position: relative;
   transition: border-color 280ms ease, opacity 280ms ease;
 }
+
+/* inner rounds carry team names already — drop the redundant origin code */
+.bracket .match-box:not(.r32) .slot-origin { display: none; }
 
 .match-box .match-no {
   position: absolute;
@@ -418,11 +422,11 @@ h3.subheading {
 .match-slot {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 9px;
-  font-size: 12.5px;
+  gap: 5px;
+  padding: 4px 7px;
+  font-size: 11.5px;
   color: var(--color-ash);
-  min-height: 29px;
+  min-height: 26px;
 }
 
 .match-slot + .match-slot { border-top: 1px dashed rgba(77, 77, 77, 0.55); }
@@ -467,8 +471,8 @@ h3.subheading {
   border: 1px dashed var(--color-peri);
   background: var(--color-carbon);
   text-align: center;
-  padding: 24px 18px;
-  margin: 5px 10px;
+  padding: 16px 10px;
+  margin: 5px 6px;
   align-self: center;
 }
 
@@ -550,7 +554,7 @@ h3.subheading {
 .match-box.r32 {
   border: none;
   background: none;
-  margin: 6px 8px;
+  margin: 5px 6px;
 }
 .match-box.r32 .match-no { display: none; }
 .match-box.r32 .match-slot {
@@ -1265,11 +1269,40 @@ h3.subheading {
   .flow-svg { display: none; }
   .flow-stack { display: flex; }
 
-  /* knockout: hide wallchart, show stacked rounds */
+  /* knockout: full flags-only wallchart fits the screen; tap a flag for
+     the score / likelihood. The stacked fallback is retired. */
   .bracket-wrap { overflow-x: visible; padding-bottom: 0; }
-  .bracket { display: none; }
-  .bracket-stack { display: flex; }
-  .champion-plate { margin: 12px 0 0; }
+  .bracket { display: flex; }
+  .bracket-stack { display: none; }
+
+  .bracket .round-title { display: none; }
+  .bracket .match-no,
+  .bracket .slot-name,
+  .bracket .slot-score,
+  .bracket .slot-pct,
+  .bracket .slot-origin,
+  .bracket .pen-note { display: none; }
+  .bracket .slot-bar { display: none; }
+
+  .bracket-round { padding-top: 4px; }
+  .bracket .match-box { margin: 2px 1px; }
+  .bracket .match-box.r32 { margin: 3px 1px; }
+  .bracket .match-slot {
+    justify-content: center;
+    padding: 3px 1px;
+    min-height: 20px;
+    gap: 0;
+  }
+  .bracket .flag { margin: 0; font-size: 13px; }
+  .bracket .match-box.r32 .match-slot { border-radius: 6px; min-height: 22px; }
+
+  .bracket-center { gap: 6px !important; }
+  .champion-plate { margin: 4px 1px; padding: 8px 4px; }
+  .champion-plate .trophy { font-size: 20px; margin-bottom: 2px; }
+  .champion-plate .champ-flag { font-size: 18px; margin-bottom: 0; }
+  .champion-plate .mono-micro,
+  .champion-plate .champ-name,
+  .champion-plate .champ-pct { display: none; }
 
   /* monte carlo: hide table, show funnel cards + sort dropdown */
   .mc-table-wrap { display: none; }
@@ -1293,3 +1326,46 @@ h3.subheading {
     box-shadow: 0 -8px 40px rgba(0,0,0,0.7);
   }
 }
+
+/* ============================================================
+   COLLAPSIBLE SECTIONS
+   ============================================================ */
+.collapse-toggle {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+}
+.collapse-toggle .chev {
+  font-size: 0.55em;
+  color: var(--color-peri);
+  transition: transform 180ms ease;
+  flex-shrink: 0;
+}
+.collapsed .collapse-toggle .chev { transform: rotate(-90deg); }
+.collapse-toggle:hover .chev { color: var(--color-paper); }
+
+/* dashed sections keep their tag + heading; everything else folds away */
+.dashed-section.collapsed > *:not(.section-tag):not(.heading) { display: none; }
+.dashed-section.collapsed { padding-bottom: 22px; }
+
+/* live / matchday stages keep their head row */
+.matchday-stage.collapsed > *:not(.matchday-head),
+.live-stage.collapsed > *:not(.live-head) { display: none; }
+.matchday-stage.collapsed,
+.live-stage.collapsed { padding-bottom: 20px; }
+
+/* ============================================================
+   GROUP-STAGE KNOCKOUT-ODDS COLUMN
+   ============================================================ */
+.group-table td.ko-cell { min-width: 40px; }
+.group-table th.ko-th { color: var(--color-peri); }
+.group-table .ko-cell .prob-bar { background: rgba(112, 137, 186, 0.20); }
+.group-table .ko-cell .prob-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ash);
+}
+.group-table tr.row-out .ko-cell .prob-num { color: var(--color-graphite); }
+.group-table .ko-cell .prob-num.prob-hot { color: var(--color-peri); font-weight: 700; }

@@ -34,6 +34,7 @@ const state = {
   mdView: null,         // last matchday bracket render args, to restore on toggle
   predict: null,        // slot-occupancy monte carlo: { slots, n }
   predictBusy: false,
+  qualOdds: null,       // monte carlo qualification odds: { tally, n }
 };
 
 const team = id => TEAMS[id];
@@ -152,8 +153,32 @@ const pct = p => Math.round(p * 100) + '%';
 
 // ---------- group stage ----------
 
+// P(reach the knockout round) per team — Monte Carlo qualification odds,
+// conditioned on whatever real results are loaded. Cached by the current
+// `known` so progressive matchday renders don't recompute each frame.
+const QUAL_RUNS = 800;
+let qualSig = null;
+function ensureQualOdds() {
+  const sig = state.known ? JSON.stringify(state.known) : 'base';
+  if (state.qualOdds && qualSig === sig) return state.qualOdds;
+  qualSig = sig;
+  state.qualOdds = monteCarlo(WC_DATA, QUAL_RUNS, null, state.known || undefined);
+  return state.qualOdds;
+}
+
+// KO% table cell (shared by the simulated and live group tables)
+function koCell(teamId, dim) {
+  const q = state.qualOdds;
+  if (!q) return '<td class="ko-cell prob-cell"><span class="prob-num">—</span></td>';
+  const p = 100 * (q.tally[teamId].r32 || 0) / q.n;
+  const txt = p >= 99.5 ? '100' : p < 0.5 ? '<1' : Math.round(p);
+  return `<td class="ko-cell prob-cell"><span class="prob-bar" style="width:${Math.min(100, p)}%"></span>
+    <span class="prob-num ${p >= 50 && !dim ? 'prob-hot' : ''}">${txt}</span></td>`;
+}
+
 function renderGroups(sim, resolvedGroups) {
   state.groupsView = { sim, resolved: resolvedGroups || null };
+  ensureQualOdds();
   const grid = $('#groupsGrid');
   grid.innerHTML = '';
   for (const g of Object.keys(GROUPS)) {
@@ -175,6 +200,7 @@ function renderGroups(sim, resolvedGroups) {
           <td>${row.w}-${row.d}-${row.l}</td>
           <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
           <td class="pts-cell">${row.pts}</td>
+          ${koCell(t.id, cls === 'row-out')}
         </tr>`;
       });
     } else {
@@ -183,6 +209,7 @@ function renderGroups(sim, resolvedGroups) {
         rowsHtml += `<tr data-team="${t.id}">
           <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
           <td>0-0-0</td><td>0</td><td class="pts-cell">0</td>
+          ${koCell(t.id)}
         </tr>`;
       });
     }
@@ -193,7 +220,7 @@ function renderGroups(sim, resolvedGroups) {
         <span class="mono-micro">${done ? 'FINAL' : 'GRP · 0/6 PLAYED'}</span>
       </div>
       <table class="group-table">
-        <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th></tr></thead>
+        <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th><th class="ko-th" title="Chance to reach the knockout round">KO%</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
     grid.appendChild(card);
@@ -1173,6 +1200,7 @@ function realGroupStandings(known) {
 
 function renderGroupsLive(standings) {
   state.groupsView = { sim: null, live: standings };
+  ensureQualOdds();
   const grid = $('#groupsGrid');
   grid.innerHTML = '';
   for (const g of Object.keys(GROUPS)) {
@@ -1189,6 +1217,7 @@ function renderGroupsLive(standings) {
         <td>${row.w}-${row.d}-${row.l}</td>
         <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
         <td class="pts-cell">${row.pts}</td>
+        ${koCell(t.id, cls === 'row-out')}
       </tr>`;
     });
     card.innerHTML = `
@@ -1197,7 +1226,7 @@ function renderGroupsLive(standings) {
         <span class="mono-micro">${complete ? 'FINAL' : 'LIVE · ' + gs.played + '/6'}</span>
       </div>
       <table class="group-table">
-        <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th></tr></thead>
+        <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th><th class="ko-th" title="Chance to reach the knockout round">KO%</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     grid.appendChild(card);
@@ -1435,9 +1464,26 @@ function renderFocus(res, teamId, ms) {
     </div>`;
 }
 
+// ---------- collapsible sections ----------
+// Click a section's heading (or a stage's title) to fold its body away.
+function initCollapsibles() {
+  const make = (section, titleEl) => {
+    if (!section || !titleEl) return;
+    section.classList.add('collapsible');
+    titleEl.classList.add('collapse-toggle');
+    titleEl.insertAdjacentHTML('afterbegin', '<span class="chev">▾</span>');
+    titleEl.addEventListener('click', () => section.classList.toggle('collapsed'));
+  };
+  $$('.dashed-section').forEach(sec => make(sec, sec.querySelector('.heading')));
+  // stages: hook the static eyebrow label (the title text is rewritten by JS)
+  make($('#liveStage'), $('#liveStage .live-head .mono-micro'));
+  make($('#matchdayStage'), $('#matchdayStage .matchday-head .mono-micro'));
+}
+
 // ---------- wiring ----------
 
 document.addEventListener('DOMContentLoaded', () => {
+  initCollapsibles();
   $('#btnOnce').addEventListener('click', runOnce);
   $('#btnThousand').addEventListener('click', runThousand);
   $('#btnMatchday').addEventListener('click', startMatchday);
