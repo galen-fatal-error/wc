@@ -372,7 +372,7 @@ function renderGroups(sim, revealedGames) {
       table = tableFromGames(g, shown);
     }
 
-    const confirmedPos = state.confirmedPos || new Set();
+    const confirmed = state.confirmed || new Set();    // secured a knockout spot
     const confWinner = state.confirmedWinner || new Set();
     let rowsHtml = '';
     table.forEach((row, i) => {
@@ -380,9 +380,10 @@ function renderGroups(sim, revealedGames) {
       const cls = !playedCount ? ''
         : i === 0 ? 'row-q1' : i === 1 ? 'row-q2'
         : (i === 2 && done && thirdQualified) ? 'row-q3-in' : 'row-out';
-      const isConf = confirmedPos.has(t.id); // gold only when exact position locked
+      const isConf = confirmed.has(t.id); // gold = guaranteed a round-of-32 place
       const conf = isConf ? ' row-confirmed' : '';
-      const check = isConf ? `<span class="conf-check" title="${confWinner.has(t.id) ? 'Top spot secured' : 'Runner-up place secured'}">✓</span>` : '';
+      const title = confWinner.has(t.id) ? 'Top spot secured' : 'Round-of-32 place secured';
+      const check = isConf ? `<span class="conf-check" title="${title}">✓</span>` : '';
       rowsHtml += `<tr class="${cls}${conf}" data-team="${t.id}">
         <td class="team-cell">${check}<span class="flag">${t.flag}</span>${t.name}</td>
         <td>${row.w}-${row.d}-${row.l}</td>
@@ -422,11 +423,13 @@ function groupRowTip(teamId) {
   let html = `<span class="tip-head">${t.flag} ${t.name} · GROUP ${g}</span>`;
 
   ensureConfirmed();
-  if (state.confirmedPos && state.confirmedPos.has(teamId)) {
-    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Position secured</span> —
-      ${state.confirmedWinner.has(teamId) ? 'has clinched top spot in the group' : 'has clinched the runner-up place'} from real results.</span>`;
-  } else if (state.confirmed && state.confirmed.has(teamId)) {
-    html += `<span class="tip-row">Through to the round of 32, but the finishing position (1st vs 2nd) is not yet settled.</span>`;
+  if (state.confirmed && state.confirmed.has(teamId)) {
+    const w = state.confirmedWinner.has(teamId);
+    const r = state.confirmedPos && state.confirmedPos.has(teamId) && !w;
+    const detail = w ? 'has clinched top spot in the group'
+      : r ? 'has clinched the runner-up place'
+      : 'is mathematically through to the round of 32 (1st vs 2nd still open)';
+    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Place secured</span> — ${detail} from real results.</span>`;
   }
 
   // provisional / pre-sim view: standings from games shown so far
