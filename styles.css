@@ -12,6 +12,7 @@
   --color-ash: #ababab;
   --color-paper: #ffffff;
   --color-peri: #7089ba;
+  --color-real: #4fb477;
 
   --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -414,6 +415,11 @@ h3.subheading {
 }
 
 .match-box.match-played { border-color: var(--color-steel); }
+.match-box.real-locked,
+.match-box.live-real {
+  border-color: var(--color-real);
+  border-style: solid;
+}
 .match-box.match-live {
   border-color: var(--color-peri);
   border-style: solid;
@@ -566,8 +572,8 @@ h3.subheading {
 }
 .match-box.r32 .match-slot + .match-slot { border-top: 1px solid #2c2c2c; }
 .match-box.r32 .match-slot.winner { border-color: var(--color-steel); }
-.bracket .match-box.r32.real-locked .match-slot { border-color: var(--color-steel); }
-.bracket .match-box.r32.live-real .match-slot { border-color: var(--color-peri); }
+.bracket .match-box.r32.real-locked .match-slot,
+.bracket .match-box.r32.live-real .match-slot { border-color: var(--color-real); }
 
 .match-slot .slot-origin {
   min-width: 22px;
@@ -1369,3 +1375,90 @@ h3.subheading {
 }
 .group-table tr.row-out .ko-cell .prob-num { color: var(--color-graphite); }
 .group-table .ko-cell .prob-num.prob-hot { color: var(--color-peri); font-weight: 700; }
+
+/* ============================================================
+   REAL-DATA INDICATORS + GROUP GAMES LIST
+   ============================================================ */
+
+/* hero real-data status line */
+.real-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 8px;
+  text-align: center;
+  min-height: 13px;
+}
+.real-note .real-on { color: var(--color-real); }
+.real-note .real-on b { color: var(--color-paper); }
+.real-note .real-off { color: var(--color-graphite); }
+.real-note .real-syncing { color: var(--color-peri); }
+
+/* "real result" key in the group-stage intro */
+.real-key { color: var(--color-real); font-weight: 700; }
+.real-key-text { color: var(--color-real); }
+
+/* a group card carrying real results gets the reality outline */
+.group-card.has-real { border: 1px solid var(--color-real); }
+.group-card .group-head .real-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--color-real);
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* compact chronological games grid — 2 cols × 3 rows (one row per matchday) */
+.group-games {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-graphite);
+}
+.gg {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-ash);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  min-width: 0;
+}
+.gg .gg-side {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.gg .gg-side.r { justify-content: flex-end; text-align: right; }
+.gg .gg-side .flag { margin: 0; font-size: 11px; }
+.gg .gg-side.w { color: var(--color-paper); font-weight: 700; }
+.gg .gg-score {
+  color: var(--color-paper);
+  flex-shrink: 0;
+  padding: 0 2px;
+  letter-spacing: 0.02em;
+}
+.gg.gg-pending { color: var(--color-graphite); }
+.gg.gg-pending .gg-side { color: var(--color-graphite); }
+.gg.gg-pending .gg-score { color: var(--color-graphite); }
+/* real / in-play games carry the reality outline */
+.gg.gg-real { border-color: var(--color-real); background: rgba(79, 180, 119, 0.08); }
+.gg.gg-live { border-color: var(--color-real); border-style: dashed; }
+.gg.gg-live .gg-score { color: var(--color-real); }
+
+@media (max-width: 768px) {
+  /* group games stay two-up but a touch larger for tapping */
+  .group-games { gap: 4px 8px; }
+  .gg { font-size: 11px; }
+}

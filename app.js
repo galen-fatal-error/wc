@@ -176,53 +176,135 @@ function koCell(teamId, dim) {
     <span class="prob-num ${p >= 50 && !dim ? 'prob-hot' : ''}">${txt}</span></td>`;
 }
 
-function renderGroups(sim, resolvedGroups) {
-  state.groupsView = { sim, resolved: resolvedGroups || null };
+// Six round-robin fixtures per group in matchday order (each team plays
+// once per matchday). Rendered as a 3-row grid so each row is a matchday.
+const GROUP_FIXTURES = {};
+for (const g of Object.keys(GROUPS)) {
+  const [a, b, c, d] = GROUPS[g];
+  GROUP_FIXTURES[g] = [
+    { md: 1, a, b }, { md: 1, a: c, b: d },
+    { md: 2, a, b: c }, { md: 2, a: d, b },
+    { md: 3, a, b: d }, { md: 3, a: b, b: c },
+  ];
+}
+
+// The games to show for a group given the current sim / real data and an
+// optional reveal set (matchday animation). Returns { pairKey -> result }.
+function groupShownGames(g, sim, revealedGames) {
+  const inG = id => GROUPS[g].includes(id);
+  const map = {};
+  if (sim) {
+    for (const m of sim.groupResults[g].matches) {
+      const pk = pairKey(m.home, m.away);
+      if (m.real || m.live || !revealedGames || revealedGames.has(pk)) {
+        map[pk] = { home: m.home, away: m.away, hg: m.hg, ag: m.ag, real: !!m.real, live: !!m.live };
+      }
+    }
+  } else if (state.known) {
+    for (const pk of Object.keys(state.known.groups)) {
+      const kf = state.known.groups[pk];
+      if (inG(kf.home) && inG(kf.away)) map[pk] = { ...kf, real: true };
+    }
+    for (const pk of Object.keys(state.known.groupsLive || {})) {
+      const kl = state.known.groupsLive[pk];
+      if (inG(kl.home) && inG(kl.away)) map[pk] = { home: kl.home, away: kl.away, hg: kl.hg, ag: kl.ag, real: true, live: true };
+    }
+  }
+  return map;
+}
+
+// Standings computed from whatever games are currently shown.
+function tableFromGames(g, shown) {
+  const stats = {};
+  GROUPS[g].forEach(id => { stats[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }; });
+  const matches = [];
+  for (const pk of Object.keys(shown)) {
+    const m = shown[pk];
+    applyResult(stats[m.home], m.hg, m.ag);
+    applyResult(stats[m.away], m.ag, m.hg);
+    matches.push(m);
+  }
+  return rankGroup(Object.values(stats), matches);
+}
+
+// Compact chronological games grid for one group card.
+function groupGamesHtml(g, shown) {
+  let cells = '';
+  for (const fx of GROUP_FIXTURES[g]) {
+    const pk = pairKey(fx.a, fx.b);
+    const s = shown[pk];
+    const A = team(fx.a), B = team(fx.b);
+    if (s) {
+      const ha = s.home === fx.a ? s.hg : s.ag;
+      const hb = s.home === fx.a ? s.ag : s.hg;
+      const aw = ha > hb ? 'w' : '', bw = hb > ha ? 'w' : '';
+      cells += `<div class="gg ${s.real ? 'gg-real' : ''} ${s.live ? 'gg-live' : ''}" data-team="${fx.a}">
+        <span class="gg-side ${aw}"><span class="flag">${A.flag}</span>${A.code}</span>
+        <span class="gg-score">${ha}–${hb}${s.live ? '′' : ''}</span>
+        <span class="gg-side r ${bw}">${B.code}<span class="flag">${B.flag}</span></span>
+      </div>`;
+    } else {
+      cells += `<div class="gg gg-pending" data-team="${fx.a}">
+        <span class="gg-side"><span class="flag">${A.flag}</span>${A.code}</span>
+        <span class="gg-score">v</span>
+        <span class="gg-side r">${B.code}<span class="flag">${B.flag}</span></span>
+      </div>`;
+    }
+  }
+  return `<div class="group-games">${cells}</div>`;
+}
+
+function renderGroups(sim, revealedGames) {
+  state.groupsView = { sim, revealedGames: revealedGames || null };
   ensureQualOdds();
   const grid = $('#groupsGrid');
   grid.innerHTML = '';
   for (const g of Object.keys(GROUPS)) {
     const card = document.createElement('div');
     card.className = 'group-card';
-    const done = sim && (!resolvedGroups || resolvedGroups.has(g));
+    const shown = groupShownGames(g, sim, revealedGames);
+    const playedCount = Object.keys(shown).length;
+    const hasReal = Object.values(shown).some(s => s.real);
+    const done = sim && playedCount === 6;
     if (done) card.classList.add('resolved');
+    if (hasReal) card.classList.add('has-real');
 
-    let rowsHtml = '';
+    // use the sim's exact final ordering when complete; otherwise rank the
+    // games shown so far (provisional standings during reveal / pre-sim)
+    let table, thirdQualified = false;
     if (done) {
-      const res = sim.groupResults[g];
-      const thirdQualified = sim.qualifiedThirds.some(t => t.group === g);
-      res.table.forEach((row, i) => {
-        const t = team(row.id);
-        const cls = i === 0 ? 'row-q1' : i === 1 ? 'row-q2'
-          : (i === 2 && thirdQualified) ? 'row-q3-in' : 'row-out';
-        rowsHtml += `<tr class="${cls}" data-team="${t.id}">
-          <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
-          <td>${row.w}-${row.d}-${row.l}</td>
-          <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
-          <td class="pts-cell">${row.pts}</td>
-          ${koCell(t.id, cls === 'row-out')}
-        </tr>`;
-      });
+      table = sim.groupResults[g].table;
+      thirdQualified = sim.qualifiedThirds.some(t => t.group === g);
     } else {
-      GROUPS[g].forEach(id => {
-        const t = team(id);
-        rowsHtml += `<tr data-team="${t.id}">
-          <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
-          <td>0-0-0</td><td>0</td><td class="pts-cell">0</td>
-          ${koCell(t.id)}
-        </tr>`;
-      });
+      table = tableFromGames(g, shown);
     }
 
+    let rowsHtml = '';
+    table.forEach((row, i) => {
+      const t = team(row.id);
+      const cls = !playedCount ? ''
+        : i === 0 ? 'row-q1' : i === 1 ? 'row-q2'
+        : (i === 2 && done && thirdQualified) ? 'row-q3-in' : 'row-out';
+      rowsHtml += `<tr class="${cls}" data-team="${t.id}">
+        <td class="team-cell"><span class="flag">${t.flag}</span>${t.name}</td>
+        <td>${row.w}-${row.d}-${row.l}</td>
+        <td>${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</td>
+        <td class="pts-cell">${row.pts}</td>
+        ${koCell(t.id, cls === 'row-out')}
+      </tr>`;
+    });
+
+    const status = done ? 'FINAL' : `${playedCount}/6 PLAYED`;
     card.innerHTML = `
       <div class="group-head">
         <span class="group-letter">${g}</span>
-        <span class="mono-micro">${done ? 'FINAL' : 'GRP · 0/6 PLAYED'}</span>
+        <span class="mono-micro">${hasReal ? '<span class="real-dot"></span>' : ''}${status}</span>
       </div>
       <table class="group-table">
         <thead><tr><th>Team</th><th>W-D-L</th><th>GD</th><th>Pts</th><th class="ko-th" title="Chance to reach the knockout round">KO%</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
-      </table>`;
+      </table>
+      ${groupGamesHtml(g, shown)}`;
     grid.appendChild(card);
   }
 }
@@ -232,27 +314,29 @@ function groupRowTip(teamId) {
   const g = groupOf(teamId);
   const view = state.groupsView || {};
   const sim = view.sim;
-  const done = sim && (!view.resolved || view.resolved.has(g));
+  const shown = groupShownGames(g, sim, view.revealedGames);
+  const playedCount = Object.keys(shown).length;
+  const done = sim && playedCount === 6;
+  const q = state.qualOdds;
+  const koLine = q ? `<span class="tip-rule">Model gives <span class="tip-strong">${pct((q.tally[teamId].r32 || 0) / q.n)}</span>
+    chance of reaching the knockout round${state.known ? ' (from current real results)' : ''}.</span>` : '';
 
   let html = `<span class="tip-head">${t.flag} ${t.name} · GROUP ${g}</span>`;
 
-  // live mode: show real partial standings
-  if (view.live) {
-    const gs = view.live[g];
-    const row = gs.table.find(r => r.id === teamId);
-    const pos = gs.table.findIndex(r => r.id === teamId) + 1;
-    html += `<span class="tip-row tip-mono">PTS <span class="tip-strong">${row.pts}</span> ·
-      W${row.w} D${row.d} L${row.l} · GD <span class="tip-strong">${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</span>
-      · ${row.p} of 3 played</span>
-      <span class="tip-row">Provisional <span class="tip-strong">${pos}${['st','nd','rd','th'][pos - 1]}</span> in Group ${g}
-      ${gs.played < 6 ? '— group still in progress' : '— group complete'}.</span>
-      <span class="tip-rule">Live standings from real results. Top two qualify; ranking by points → GD → goals → head-to-head.</span>`;
-    return html;
-  }
+  // provisional / pre-sim view: standings from games shown so far
   if (!done) {
-    html += `<span class="tip-row">FIFA rating <span class="tip-strong">${t.elo}</span> — drives every simulated result.</span>
-      <span class="tip-rule">Group ranking order (FIFA Art. 13): points → goal difference → goals scored →
-      head-to-head → fair play → drawing of lots.</span>`;
+    const tbl = tableFromGames(g, shown);
+    const row = tbl.find(r => r.id === teamId);
+    const pos = tbl.findIndex(r => r.id === teamId) + 1;
+    if (playedCount) {
+      html += `<span class="tip-row tip-mono">PTS <span class="tip-strong">${row.pts}</span> ·
+        W${row.w} D${row.d} L${row.l} · GD <span class="tip-strong">${row.gf - row.ga > 0 ? '+' : ''}${row.gf - row.ga}</span>
+        · ${row.p} played</span>
+        <span class="tip-row">Provisional <span class="tip-strong">${pos}${['st', 'nd', 'rd', 'th'][pos - 1]}</span> in Group ${g}.</span>`;
+    } else {
+      html += `<span class="tip-row">FIFA rating <span class="tip-strong">${t.elo}</span> — drives every simulated result.</span>`;
+    }
+    html += koLine || `<span class="tip-rule">Ranking: points → goal difference → goals scored → head-to-head.</span>`;
     return html;
   }
 
@@ -802,19 +886,51 @@ function syncKoModeButtons() {
   $$('.ko-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.komode === state.koMode));
 }
 
-// One-shot, silent pull of current real results (for predictive mode when
-// Live hasn't been run yet). Sets state.known; failures are swallowed so
-// the projection can still run pre-tournament.
+// One-shot, silent pull of current real results. Sets state.known so every
+// simulation continues from reality; failures are swallowed so the app still
+// runs pre-tournament.
 async function syncLiveQuiet() {
   try {
     const feed = makeRealFeed(WC_DATA);
     const snap = await feed.snapshot();
     const folded = buildKnown(snap);
     state.known = folded.known;
+    state.knownFolded = folded;
     return folded;
   } catch (e) {
     return null;
   }
+}
+
+function setRealNote(html) {
+  const el = $('#realNote');
+  if (el) el.innerHTML = html;
+}
+
+// Pull real data and refresh whatever's on screen. Real data is always on:
+// run on load and on demand via the ↻ REAL DATA button.
+async function refreshRealData(announce) {
+  const btn = $('#btnRefresh');
+  if (btn) { btn.disabled = true; btn.textContent = 'SYNCING…'; }
+  setRealNote('<span class="real-syncing">● syncing real results…</span>');
+  const folded = await syncLiveQuiet();
+  state.predict = null; // force predictive to re-project on next open
+  if (btn) { btn.disabled = false; btn.textContent = '↻ REAL DATA'; }
+
+  if (!folded) {
+    setRealNote('<span class="real-off">○ no real data reachable — showing a clean pre-tournament sheet</span>');
+  } else if (folded.finished + folded.live === 0) {
+    setRealNote('<span class="real-on">● real data on · tournament not started — all results simulated</span>');
+  } else {
+    setRealNote(`<span class="real-on">● real data on · <b>${folded.finished}</b> result${folded.finished === 1 ? '' : 's'} locked${folded.live ? ` · <b>${folded.live}</b> in play` : ''} · every simulation continues from here</span>`);
+  }
+
+  // refresh current view with the new reality, unless mid-animation
+  if (!state.matchday) {
+    renderGroups(state.sim || null);
+    if (state.sim) { renderThirds(state.sim); renderFlow(state.sim); renderBracket(state.sim); }
+  }
+  if (announce) setNote(folded && folded.finished + folded.live ? `REAL DATA SYNCED · ${knownCount()} RESULT${knownCount() === 1 ? '' : 'S'} LOCKED` : 'REAL DATA SYNCED');
 }
 
 const PREDICT_RUNS = 1500;
@@ -853,7 +969,7 @@ function setKoMode(mode) {
     else renderBracket(null, { mode: 'matchday' });
     setKoStatus(state.sim || (state.matchday && state.matchday.sim)
       ? '⚽ MATCHDAY · one simulated tournament, with scores.'
-      : 'Simulated bracket — run Matchday, Run Once, or Live to fill it.');
+      : 'Simulated bracket — run Matchday or Run Once to fill it.');
   }
 }
 
@@ -957,9 +1073,6 @@ function resetAll() {
   state.token++;
   state.sim = null;
   state.matchday = null;
-  if (state.live && state.live.timer) clearInterval(state.live.timer);
-  state.live = null;
-  state.known = null;
   state.mc = null;
   state.mcContext = '';
   state.predict = null;
@@ -967,14 +1080,14 @@ function resetAll() {
   state.koMode = 'matchday';
   hideTip();
   $('#matchdayStage').classList.remove('active');
-  $('#liveStage').classList.remove('active');
+  // real data stays on — the cleared sheet still shows results already played
   renderGroups(null);
   renderThirds(null);
   renderFlow(null);
   renderBracket(null);
   renderMC();
-  setKoStatus('Simulated bracket — run Matchday, Run Once, or Live to fill it.');
-  setNote('SHEET CLEAR · KICK-OFF JUN 11 · ESTADIO AZTECA');
+  setKoStatus('Simulated bracket — run Matchday or Run Once to fill it.');
+  setNote(state.known && knownCount() ? `SHEET CLEAR · ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'} STILL ON` : 'SHEET CLEAR · KICK-OFF JUN 11 · ESTADIO AZTECA');
 }
 
 function runOnce() {
@@ -1053,7 +1166,6 @@ async function startMatchday() {
     phase: 'groups',
     busy: false,
   };
-  renderGroups(null);
   renderThirds(null);
   renderFlow(null);
   renderBracket(null);
@@ -1062,28 +1174,33 @@ async function startMatchday() {
   $('#stageTitle').textContent = ROUND_LABELS.groups;
   $('#nextRoundBtn').textContent = 'GROUP STAGE IN PROGRESS …';
   $('#nextRoundBtn').disabled = true;
-  $('#feed').innerHTML = '';
   $('#upsetFlash').textContent = '';
   setNote(state.known ? `MATCHDAY MODE · CONTINUING FROM ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'}` : 'MATCHDAY MODE · GROUP STAGE IN PROGRESS');
-  await sleep(400);
-  if (myToken !== state.token) return;
 
   const md = mdState();
   const alive = () => state.token === myToken && mdState() === md;
 
-  const resolved = new Set();
+  // reveal games into the group cards matchday-by-matchday (no side list).
+  // real results are already "played", so show them straight away.
+  const revealed = new Set();
   for (const g of Object.keys(GROUPS)) {
     for (const m of md.sim.groupResults[g].matches) {
-      if (!alive()) return;
-      const div = feedItem({ homeId: m.home, awayId: m.away, hg: m.hg, ag: m.ag, winner: m.hg > m.ag ? m.home : m.hg < m.ag ? m.away : null });
-      $('#feed').appendChild(div);
-      requestAnimationFrame(() => div.classList.add('revealed'));
-      div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      if (!document.hidden) await sleep(95); // skip the drip-feed if the tab is backgrounded
+      if (m.real || m.live) revealed.add(pairKey(m.home, m.away));
     }
+  }
+  renderGroups(md.sim, revealed);
+  $('#groupsGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  for (let mdNo = 1; mdNo <= 3; mdNo++) {
+    await sleep(document.hidden ? 0 : 560);
     if (!alive()) return;
-    resolved.add(g);
-    renderGroups(md.sim, resolved);
+    for (const g of Object.keys(GROUPS)) {
+      for (const fx of GROUP_FIXTURES[g]) {
+        if (fx.md === mdNo) revealed.add(pairKey(fx.a, fx.b));
+      }
+    }
+    $('#stageTitle').textContent = `GROUP STAGE · MATCHDAY ${mdNo} OF 3`;
+    renderGroups(md.sim, revealed);
   }
   if (!alive()) return;
 
@@ -1123,17 +1240,8 @@ async function playMatch(id) {
   md.busy = false;
   renderBracket(md.sim, mdBracketOpts());
 
-  let tag = '';
-  if (id === '103') tag = 'BRONZE';
-  else if (isUpset(m)) tag = 'UPSET';
-  else if (m.pens) tag = 'PENS';
-  else if ((m.cards || []).length) tag = 'RED CARD';
-  const div = feedItem({ homeId: m.home, awayId: m.away, hg: m.hg, ag: m.ag, winner: m.winner, pens: m.pens, et: m.et, tag: tag || null });
-  div.classList.add('revealed');
-  if (tag === 'UPSET') div.classList.add('upset');
-  $('#feed').prepend(div);
-
-  if (tag === 'UPSET') {
+  const isUp = isUpset(m);
+  if (isUp) {
     const w = team(m.winner), l = team(m.loser);
     $('#upsetFlash').textContent = `UPSET — ${w.name.toUpperCase()} ELIMINATE ${l.name.toUpperCase()}`;
   }
@@ -1489,10 +1597,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btnMatchday').addEventListener('click', startMatchday);
   $('#btnReset').addEventListener('click', resetAll);
 
-  // live mode — one-shot pull of real results, then every mode uses it
-  $('#btnLive').addEventListener('click', startLiveMode);
-  $('#liveRefresh').addEventListener('click', pullLive);
-  $('#liveClear').addEventListener('click', resetAll);
+  // real data is always on — manual re-pull on demand
+  $('#btnRefresh').addEventListener('click', () => refreshRealData(true));
 
   // team focus
   populateFocusTeams();
@@ -1558,4 +1664,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('touchstart', dismissSheet, { passive: true });
 
   resetAll();
+  // real data is always on: pull it on load, then refresh the sheet
+  refreshRealData(false);
 });

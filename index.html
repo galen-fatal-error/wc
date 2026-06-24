@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 
@@ -22,20 +22,21 @@
     <button class="pill-btn" id="btnOnce">RUN ONCE</button>
     <button class="pill-btn armed" id="btnMatchday">MATCHDAY MODE ▸</button>
     <button class="pill-btn" id="btnThousand">RUN ×1000</button>
-    <button class="pill-btn" id="btnLive">● LIVE MODE</button>
     <button class="pill-btn" id="btnFocus">TEAM FOCUS</button>
+    <button class="pill-btn ghost" id="btnRefresh">↻ REAL DATA</button>
     <button class="pill-btn ghost" id="btnReset">CLEAR SHEET</button>
   </div>
   <div class="mode-note" id="modeNote"></div>
+  <div class="real-note" id="realNote"></div>
 </header>
 
 <main class="page">
 
-  <!-- ============ MATCHDAY STAGE (drama mode) ============ -->
+  <!-- ============ MATCHDAY STAGE (interactive control bar) ============ -->
   <section class="matchday-stage" id="matchdayStage">
     <div class="matchday-head">
       <div>
-        <span class="mono-micro" style="color:var(--color-peri)">MATCHDAY MODE · LIVE SHEET</span>
+        <span class="mono-micro" style="color:var(--color-peri)">MATCHDAY MODE</span>
         <h3 class="subheading" id="stageTitle">GROUP STAGE</h3>
       </div>
       <div style="display:flex; gap:10px">
@@ -43,35 +44,17 @@
         <button class="pill-btn ghost" id="skipBtn">SKIP TO FULL TIME ▸▸</button>
       </div>
     </div>
-    <div class="matchday-feed" id="feed"></div>
     <div class="upset-flash" id="upsetFlash"></div>
-  </section>
-
-  <!-- ============ LIVE MODE (real results wire) ============ -->
-  <section class="live-stage" id="liveStage">
-    <div class="live-head">
-      <div>
-        <span class="mono-micro" style="color:var(--color-peri)">LIVE MODE · OFFICIAL RESULTS · api.fifa.com</span>
-        <h3 class="subheading" id="liveTitle">Live results</h3>
-      </div>
-      <div class="live-controls">
-        <button class="pill-btn" id="liveRefresh">↻ REFRESH</button>
-        <button class="pill-btn ghost" id="liveClear">CLEAR REAL DATA</button>
-      </div>
-    </div>
-    <p class="footnote" style="margin:0 0 12px">Pulls the current real World Cup results and locks them in. Every
-    mode — Run Once, Matchday, ×1000, Team Focus — then projects forward from this real data. Scores are semi-live
-    (they trail the broadcast slightly).</p>
-    <div class="live-meta" id="liveMeta"></div>
-    <div class="live-wire" id="liveWire"></div>
   </section>
 
   <!-- ============ FIG 01 · GROUP STAGE ============ -->
   <section class="dashed-section">
     <span class="section-tag">FIG. 01 <span class="tag-accent">·</span> GROUP STAGE — 12 GROUPS × 4, MATCHES 1–72</span>
     <h2 class="heading">Group stage</h2>
-    <p class="footnote" style="margin-top:6px">Single round-robin. Top two from every group advance, plus the
-    eight best third-placed sides ranked across all twelve groups — 32 of 48 go through.</p>
+    <p class="footnote" style="margin-top:6px">Single round-robin — each group's six games are listed in matchday order
+    under its table. Top two from every group advance, plus the eight best third-placed sides — 32 of 48 go through.
+    <span class="real-key">▢</span> A <span class="real-key-text">coloured outline marks a real result</span> already
+    played at the tournament; everything else is simulated.</p>
     <div class="groups-grid" id="groupsGrid"></div>
     <div class="thirds-strip" id="thirdsStrip"></div>
   </section>
@@ -108,7 +91,7 @@
         <button class="ko-mode-btn active" data-komode="matchday">⚽ MATCHDAY</button>
         <button class="ko-mode-btn" data-komode="predict">◎ PREDICTIVE</button>
       </div>
-      <span class="ko-mode-status" id="koModeStatus">Simulated bracket — run Matchday, Run Once, or Live to fill it.</span>
+      <span class="ko-mode-status" id="koModeStatus">Simulated bracket — run Matchday or Run Once to fill it.</span>
     </div>
 
     <div class="bracket-wrap" id="bracketWrap">
@@ -154,9 +137,9 @@
 
 </main>
 
-<script src="data.js?v=11"></script>
-<script src="engine.js?v=11"></script>
-<script src="live.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="data.js?v=12"></script>
+<script src="engine.js?v=12"></script>
+<script src="live.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
