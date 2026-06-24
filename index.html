@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 
@@ -105,13 +105,14 @@
     <span class="section-tag">FIG. 04 <span class="tag-accent">·</span> MONTE CARLO — 1000 FULL TOURNAMENTS</span>
     <h2 class="heading">The odds table</h2>
     <div id="mcWrap"></div>
-    <p class="footnote">Model: match outcomes sampled from Poisson goal distributions tilted by FIFA ranking
-    difference (600-point logistic, per FIFA's own SUM formula). Group tiebreakers follow FIFA regulations —
-    points, goal difference, goals scored, head-to-head; fair play approximated by lots. Third-place allocation
-    solved per scenario against the published slot constraints. Ratings: FIFA Men's World Ranking, April 2026
-    order (points approximated from the November 2025 release where unpublished). Groups reflect the final
-    draw and March 2026 playoff results — Bosnia &amp; Herzegovina, Sweden, Türkiye, Czechia, DR Congo, Iraq.
-    Part simulation, part entertainment — no wagering advice on this sheet.</p>
+    <p class="footnote">Model: scorelines sampled from a Dixon-Coles-corrected bivariate Poisson — goal means set
+    by the Elo difference (400-point logistic) with the low-score correction that fixes plain Poisson's habit of
+    under-counting draws. Hosts (USA / Mexico / Canada) carry a home-advantage bump (~+70 Elo) in their group games.
+    Group tiebreakers follow FIFA regulations — points, goal difference, goals scored, head-to-head; fair play
+    approximated by lots. Third-place allocation solved per scenario against the published slot constraints.
+    Ratings: World Football Elo (eloratings.net), June 2026 — a stronger match predictor than the FIFA ranking.
+    Groups reflect the final draw and March 2026 playoff results — Bosnia &amp; Herzegovina, Sweden, Türkiye,
+    Czechia, DR Congo, Iraq. Part simulation, part entertainment — no wagering advice on this sheet.</p>
   </section>
 
   <!-- ============ FIG 05 · TEAM FOCUS ============ -->
@@ -137,9 +138,9 @@
 
 </main>
 
-<script src="data.js?v=12"></script>
-<script src="engine.js?v=12"></script>
-<script src="live.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="data.js?v=13"></script>
+<script src="engine.js?v=13"></script>
+<script src="live.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

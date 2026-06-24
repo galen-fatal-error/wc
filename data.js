@@ -2,75 +2,75 @@
    WC26 BRACKET LAB — tournament data
    Sources: FIFA final draw (Dec 5, 2025) + March 2026 playoff
    results (Bosnia, Sweden, Türkiye, Czechia, DR Congo, Iraq).
-   Ratings: FIFA Men's World Ranking, April 2026 release order;
-   point totals approximated from the Nov 2025 release where the
-   April figures were not published. FIFA points are Elo-scaled
-   (expected score uses the 600-point logistic, per FIFA's SUM).
+   Ratings: World Football Elo (eloratings.net), June 2026 — a
+   stronger match predictor than the FIFA ranking. Expected score
+   uses the standard Elo 400-point logistic; goals are sampled
+   from a Dixon-Coles-corrected bivariate Poisson (see engine.js).
    ============================================================ */
 
 'use strict';
 
 const TEAMS = {
   // Group A
-  MEX: { id: 'MEX', name: 'Mexico',        code: 'MEX', flag: '🇲🇽', elo: 1683 },
-  KOR: { id: 'KOR', name: 'South Korea',   code: 'KOR', flag: '🇰🇷', elo: 1578 },
-  RSA: { id: 'RSA', name: 'South Africa',  code: 'RSA', flag: '🇿🇦', elo: 1448 },
-  CZE: { id: 'CZE', name: 'Czechia',       code: 'CZE', flag: '🇨🇿', elo: 1500 },
+  MEX: { id: 'MEX', name: 'Mexico',        code: 'MEX', flag: '🇲🇽', elo: 1896 },
+  KOR: { id: 'KOR', name: 'South Korea',   code: 'KOR', flag: '🇰🇷', elo: 1771 },
+  RSA: { id: 'RSA', name: 'South Africa',  code: 'RSA', flag: '🇿🇦', elo: 1527 },
+  CZE: { id: 'CZE', name: 'Czechia',       code: 'CZE', flag: '🇨🇿', elo: 1696 },
   // Group B
-  CAN: { id: 'CAN', name: 'Canada',        code: 'CAN', flag: '🇨🇦', elo: 1552 },
-  SUI: { id: 'SUI', name: 'Switzerland',   code: 'SUI', flag: '🇨🇭', elo: 1650 },
-  QAT: { id: 'QAT', name: 'Qatar',         code: 'QAT', flag: '🇶🇦', elo: 1445 },
-  BIH: { id: 'BIH', name: 'Bosnia & Herz.',code: 'BIH', flag: '🇧🇦', elo: 1420 },
+  CAN: { id: 'CAN', name: 'Canada',        code: 'CAN', flag: '🇨🇦', elo: 1777 },
+  SUI: { id: 'SUI', name: 'Switzerland',   code: 'SUI', flag: '🇨🇭', elo: 1885 },
+  QAT: { id: 'QAT', name: 'Qatar',         code: 'QAT', flag: '🇶🇦', elo: 1437 },
+  BIH: { id: 'BIH', name: 'Bosnia & Herz.',code: 'BIH', flag: '🇧🇦', elo: 1596 },
   // Group C
-  BRA: { id: 'BRA', name: 'Brazil',        code: 'BRA', flag: '🇧🇷', elo: 1766 },
-  MAR: { id: 'MAR', name: 'Morocco',       code: 'MAR', flag: '🇲🇦', elo: 1734 },
-  SCO: { id: 'SCO', name: 'Scotland',      code: 'SCO', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', elo: 1495 },
-  HAI: { id: 'HAI', name: 'Haiti',         code: 'HAI', flag: '🇭🇹', elo: 1276 },
+  BRA: { id: 'BRA', name: 'Brazil',        code: 'BRA', flag: '🇧🇷', elo: 1986 },
+  MAR: { id: 'MAR', name: 'Morocco',       code: 'MAR', flag: '🇲🇦', elo: 1866 },
+  SCO: { id: 'SCO', name: 'Scotland',      code: 'SCO', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', elo: 1768 },
+  HAI: { id: 'HAI', name: 'Haiti',         code: 'HAI', flag: '🇭🇹', elo: 1528 },
   // Group D
-  USA: { id: 'USA', name: 'United States', code: 'USA', flag: '🇺🇸', elo: 1679 },
-  AUS: { id: 'AUS', name: 'Australia',     code: 'AUS', flag: '🇦🇺', elo: 1575 },
-  PAR: { id: 'PAR', name: 'Paraguay',      code: 'PAR', flag: '🇵🇾', elo: 1502 },
-  TUR: { id: 'TUR', name: 'Türkiye',       code: 'TUR', flag: '🇹🇷', elo: 1605 },
+  USA: { id: 'USA', name: 'United States', code: 'USA', flag: '🇺🇸', elo: 1820 },
+  AUS: { id: 'AUS', name: 'Australia',     code: 'AUS', flag: '🇦🇺', elo: 1799 },
+  PAR: { id: 'PAR', name: 'Paraguay',      code: 'PAR', flag: '🇵🇾', elo: 1816 },
+  TUR: { id: 'TUR', name: 'Türkiye',       code: 'TUR', flag: '🇹🇷', elo: 1813 },
   // Group E
-  GER: { id: 'GER', name: 'Germany',       code: 'GER', flag: '🇩🇪', elo: 1722 },
-  ECU: { id: 'ECU', name: 'Ecuador',       code: 'ECU', flag: '🇪🇨', elo: 1590 },
-  CIV: { id: 'CIV', name: "Côte d'Ivoire", code: 'CIV', flag: '🇨🇮', elo: 1532 },
-  CUW: { id: 'CUW', name: 'Curaçao',       code: 'CUW', flag: '🇨🇼', elo: 1305 },
+  GER: { id: 'GER', name: 'Germany',       code: 'GER', flag: '🇩🇪', elo: 1954 },
+  ECU: { id: 'ECU', name: 'Ecuador',       code: 'ECU', flag: '🇪🇨', elo: 1864 },
+  CIV: { id: 'CIV', name: "Côte d'Ivoire", code: 'CIV', flag: '🇨🇮', elo: 1728 },
+  CUW: { id: 'CUW', name: 'Curaçao',       code: 'CUW', flag: '🇨🇼', elo: 1453 },
   // Group F
-  NED: { id: 'NED', name: 'Netherlands',   code: 'NED', flag: '🇳🇱', elo: 1758 },
-  JPN: { id: 'JPN', name: 'Japan',         code: 'JPN', flag: '🇯🇵', elo: 1652 },
-  TUN: { id: 'TUN', name: 'Tunisia',       code: 'TUN', flag: '🇹🇳', elo: 1490 },
-  SWE: { id: 'SWE', name: 'Sweden',        code: 'SWE', flag: '🇸🇪', elo: 1510 },
+  NED: { id: 'NED', name: 'Netherlands',   code: 'NED', flag: '🇳🇱', elo: 1972 },
+  JPN: { id: 'JPN', name: 'Japan',         code: 'JPN', flag: '🇯🇵', elo: 1925 },
+  TUN: { id: 'TUN', name: 'Tunisia',       code: 'TUN', flag: '🇹🇳', elo: 1570 },
+  SWE: { id: 'SWE', name: 'Sweden',        code: 'SWE', flag: '🇸🇪', elo: 1727 },
   // Group G
-  BEL: { id: 'BEL', name: 'Belgium',       code: 'BEL', flag: '🇧🇪', elo: 1732 },
-  IRN: { id: 'IRN', name: 'Iran',          code: 'IRN', flag: '🇮🇷', elo: 1620 },
-  EGY: { id: 'EGY', name: 'Egypt',         code: 'EGY', flag: '🇪🇬', elo: 1555 },
-  NZL: { id: 'NZL', name: 'New Zealand',   code: 'NZL', flag: '🇳🇿', elo: 1300 },
+  BEL: { id: 'BEL', name: 'Belgium',       code: 'BEL', flag: '🇧🇪', elo: 1869 },
+  IRN: { id: 'IRN', name: 'Iran',          code: 'IRN', flag: '🇮🇷', elo: 1766 },
+  EGY: { id: 'EGY', name: 'Egypt',         code: 'EGY', flag: '🇪🇬', elo: 1740 },
+  NZL: { id: 'NZL', name: 'New Zealand',   code: 'NZL', flag: '🇳🇿', elo: 1549 },
   // Group H
-  ESP: { id: 'ESP', name: 'Spain',         code: 'ESP', flag: '🇪🇸', elo: 1876 },
-  URU: { id: 'URU', name: 'Uruguay',       code: 'URU', flag: '🇺🇾', elo: 1675 },
-  KSA: { id: 'KSA', name: 'Saudi Arabia',  code: 'KSA', flag: '🇸🇦', elo: 1435 },
-  CPV: { id: 'CPV', name: 'Cape Verde',    code: 'CPV', flag: '🇨🇻', elo: 1335 },
+  ESP: { id: 'ESP', name: 'Spain',         code: 'ESP', flag: '🇪🇸', elo: 2134 },
+  URU: { id: 'URU', name: 'Uruguay',       code: 'URU', flag: '🇺🇾', elo: 1851 },
+  KSA: { id: 'KSA', name: 'Saudi Arabia',  code: 'KSA', flag: '🇸🇦', elo: 1593 },
+  CPV: { id: 'CPV', name: 'Cape Verde',    code: 'CPV', flag: '🇨🇻', elo: 1625 },
   // Group I
-  FRA: { id: 'FRA', name: 'France',        code: 'FRA', flag: '🇫🇷', elo: 1877 },
-  SEN: { id: 'SEN', name: 'Senegal',       code: 'SEN', flag: '🇸🇳', elo: 1688 },
-  NOR: { id: 'NOR', name: 'Norway',        code: 'NOR', flag: '🇳🇴', elo: 1548 },
-  IRQ: { id: 'IRQ', name: 'Iraq',          code: 'IRQ', flag: '🇮🇶', elo: 1425 },
+  FRA: { id: 'FRA', name: 'France',        code: 'FRA', flag: '🇫🇷', elo: 2090 },
+  SEN: { id: 'SEN', name: 'Senegal',       code: 'SEN', flag: '🇸🇳', elo: 1817 },
+  NOR: { id: 'NOR', name: 'Norway',        code: 'NOR', flag: '🇳🇴', elo: 1951 },
+  IRQ: { id: 'IRQ', name: 'Iraq',          code: 'IRQ', flag: '🇮🇶', elo: 1586 },
   // Group J
-  ARG: { id: 'ARG', name: 'Argentina',     code: 'ARG', flag: '🇦🇷', elo: 1875 },
-  AUT: { id: 'AUT', name: 'Austria',       code: 'AUT', flag: '🇦🇹', elo: 1582 },
-  ALG: { id: 'ALG', name: 'Algeria',       code: 'ALG', flag: '🇩🇿', elo: 1560 },
-  JOR: { id: 'JOR', name: 'Jordan',        code: 'JOR', flag: '🇯🇴', elo: 1389 },
+  ARG: { id: 'ARG', name: 'Argentina',     code: 'ARG', flag: '🇦🇷', elo: 2144 },
+  AUT: { id: 'AUT', name: 'Austria',       code: 'AUT', flag: '🇦🇹', elo: 1841 },
+  ALG: { id: 'ALG', name: 'Algeria',       code: 'ALG', flag: '🇩🇿', elo: 1780 },
+  JOR: { id: 'JOR', name: 'Jordan',        code: 'JOR', flag: '🇯🇴', elo: 1632 },
   // Group K
-  POR: { id: 'POR', name: 'Portugal',      code: 'POR', flag: '🇵🇹', elo: 1768 },
-  COL: { id: 'COL', name: 'Colombia',      code: 'COL', flag: '🇨🇴', elo: 1696 },
-  UZB: { id: 'UZB', name: 'Uzbekistan',    code: 'UZB', flag: '🇺🇿', elo: 1450 },
-  COD: { id: 'COD', name: 'DR Congo',      code: 'COD', flag: '🇨🇩', elo: 1480 },
+  POR: { id: 'POR', name: 'Portugal',      code: 'POR', flag: '🇵🇹', elo: 1967 },
+  COL: { id: 'COL', name: 'Colombia',      code: 'COL', flag: '🇨🇴', elo: 1998 },
+  UZB: { id: 'UZB', name: 'Uzbekistan',    code: 'UZB', flag: '🇺🇿', elo: 1698 },
+  COD: { id: 'COD', name: 'DR Congo',      code: 'COD', flag: '🇨🇩', elo: 1674 },
   // Group L
-  ENG: { id: 'ENG', name: 'England',       code: 'ENG', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', elo: 1840 },
-  CRO: { id: 'CRO', name: 'Croatia',       code: 'CRO', flag: '🇭🇷', elo: 1718 },
-  PAN: { id: 'PAN', name: 'Panama',        code: 'PAN', flag: '🇵🇦', elo: 1535 },
-  GHA: { id: 'GHA', name: 'Ghana',         code: 'GHA', flag: '🇬🇭', elo: 1332 },
+  ENG: { id: 'ENG', name: 'England',       code: 'ENG', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', elo: 2055 },
+  CRO: { id: 'CRO', name: 'Croatia',       code: 'CRO', flag: '🇭🇷', elo: 1881 },
+  PAN: { id: 'PAN', name: 'Panama',        code: 'PAN', flag: '🇵🇦', elo: 1683 },
+  GHA: { id: 'GHA', name: 'Ghana',         code: 'GHA', flag: '🇬🇭', elo: 1557 },
 };
 
 const GROUPS = {

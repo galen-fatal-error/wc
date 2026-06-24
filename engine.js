@@ -25,8 +25,52 @@ function poisson(lambda) {
 // is ~2.5 total). This produces realistic draw rates (~25%) in group
 // play and sane scorelines, while preserving elo win probabilities.
 
+// Standard World Football Elo logistic (400-point scale).
 function eloExpected(eloA, eloB) {
-  return 1 / (1 + Math.pow(10, (eloB - eloA) / 600));
+  return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+}
+
+// Host advantage: USA/MEX/CAN play their group games on home soil. Worth
+// ~+70 Elo (≈ a third of a goal); applied only where a host is genuinely
+// at home (group stage), since knockout venues are spread across the three.
+const WC_HOSTS = { USA: 1, MEX: 1, CAN: 1 };
+const HOST_ELO_BONUS = 70;
+function effElo(t, atHome) {
+  return t.elo + (atHome && WC_HOSTS[t.id] ? HOST_ELO_BONUS : 0);
+}
+
+// ---------- Dixon-Coles low-score correction ----------
+// Independent Poisson under-predicts draws; Dixon & Coles (1997) reweight
+// the four lowest scorelines by tau(x,y) with a single parameter rho.
+const DC_RHO = -0.11;
+function dcTau(x, y, la, lb) {
+  if (x === 0 && y === 0) return 1 - la * lb * DC_RHO;
+  if (x === 0 && y === 1) return 1 + la * DC_RHO;
+  if (x === 1 && y === 0) return 1 + lb * DC_RHO;
+  if (x === 1 && y === 1) return 1 - DC_RHO;
+  return 1;
+}
+
+// Sample a scoreline from the Dixon-Coles-corrected bivariate Poisson:
+// build the joint PMF up to 9-9, apply tau to the four low cells, draw.
+function simScore(la, lb) {
+  const MAX = 9;
+  const A = poissonPmf(la, MAX), B = poissonPmf(lb, MAX);
+  const cum = [];
+  let total = 0;
+  for (let x = 0; x <= MAX; x++) {
+    for (let y = 0; y <= MAX; y++) {
+      let p = A[x] * B[y];
+      if (x <= 1 && y <= 1) p *= dcTau(x, y, la, lb);
+      total += p;
+      cum.push(x, y, total);
+    }
+  }
+  const r = rng() * total;
+  for (let i = 0; i < cum.length; i += 3) {
+    if (r <= cum[i + 2]) return { a: cum[i], b: cum[i + 1] };
+  }
+  return { a: 0, b: 0 };
 }
 
 function goalLambdas(eloA, eloB) {
@@ -39,15 +83,15 @@ function goalLambdas(eloA, eloB) {
   return [Math.max(0.18, lamA), Math.max(0.18, lamB)];
 }
 
-// Simulate 90 minutes. Returns {a, b} goals.
+// Simulate 90 minutes (Dixon-Coles bivariate Poisson). Returns {a, b}.
 function simGoals(eloA, eloB) {
   const [la, lb] = goalLambdas(eloA, eloB);
-  return { a: poisson(la), b: poisson(lb) };
+  return simScore(la, lb);
 }
 
-// Group match: draw allowed.
+// Group match: draw allowed, host advantage applied on home soil.
 function simGroupMatch(teamA, teamB) {
-  const g = simGoals(teamA.elo, teamB.elo);
+  const g = simGoals(effElo(teamA, true), effElo(teamB, true));
   return { home: teamA.id, away: teamB.id, hg: g.a, ag: g.b };
 }
 
@@ -105,9 +149,8 @@ function simKnockoutMatch(teamA, teamB) {
   }
   cards.sort((x, y) => x.minute - y.minute);
 
-  const hg = poisson(Math.max(0.1, effA));
-  const ag = poisson(Math.max(0.1, effB));
-  return resolveKnockout(teamA, teamB, hg, ag, effA, effB, cards);
+  const sc = simScore(Math.max(0.1, effA), Math.max(0.1, effB));
+  return resolveKnockout(teamA, teamB, sc.a, sc.b, effA, effB, cards);
 }
 
 // ---------- conditioning on real / in-play data ----------
@@ -178,7 +221,8 @@ function outcomeProbs(la, lb) {
   let w = 0, d = 0, l = 0;
   for (let i = 0; i < A.length; i++) {
     for (let j = 0; j < B.length; j++) {
-      const p = A[i] * B[j];
+      let p = A[i] * B[j];
+      if (i <= 1 && j <= 1) p *= dcTau(i, j, la, lb); // Dixon-Coles correction
       if (i > j) w += p; else if (i === j) d += p; else l += p;
     }
   }

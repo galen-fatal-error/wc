@@ -1466,7 +1466,8 @@ function startLiveMode() {
 // ============================================================
 
 function h2hOdds(aId, bId) {
-  const [la, lb] = goalLambdas(team(aId).elo, team(bId).elo);
+  // group fixtures: hosts carry home advantage, matching the simulation
+  const [la, lb] = goalLambdas(effElo(team(aId), true), effElo(team(bId), true));
   return outcomeProbs(la, lb); // [win, draw, loss] for team a
 }
 
