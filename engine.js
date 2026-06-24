@@ -286,21 +286,22 @@ function applyResult(s, gf, ga) {
   else s.l++;
 }
 
+// FIFA 2026 group ranking order: points, then HEAD-TO-HEAD among the teams
+// level on points (h2h points, h2h GD, h2h goals), then overall GD, overall
+// goals, then conduct/ranking (approximated by lots). Note: head-to-head is
+// applied BEFORE overall goal difference (changed for 2026).
 function rankGroup(rows, matches) {
-  const cmp = (x, y) =>
-    (y.pts - x.pts) ||
-    ((y.gf - y.ga) - (x.gf - x.ga)) ||
-    (y.gf - x.gf);
-  rows.sort(cmp);
-  // resolve full ties with head-to-head among tied teams, then random
-  for (let i = 0; i < rows.length - 1; i++) {
+  const rnd = {};
+  rows.forEach(r => { rnd[r.id] = rng(); });
+  rows.sort((x, y) => y.pts - x.pts);
+  for (let i = 0; i < rows.length;) {
     let j = i;
-    while (j + 1 < rows.length && cmp(rows[i], rows[j + 1]) === 0) j++;
+    while (j + 1 < rows.length && rows[j + 1].pts === rows[i].pts) j++;
     if (j > i) {
       const tied = rows.slice(i, j + 1);
-      const h2h = {};
-      for (const r of tied) h2h[r.id] = { pts: 0, gd: 0, gf: 0, r: rng() };
       const ids = new Set(tied.map(r => r.id));
+      const h2h = {};
+      tied.forEach(r => { h2h[r.id] = { pts: 0, gd: 0, gf: 0 }; });
       for (const m of matches) {
         if (ids.has(m.home) && ids.has(m.away)) {
           const hs = h2h[m.home], as = h2h[m.away];
@@ -313,11 +314,12 @@ function rankGroup(rows, matches) {
       }
       tied.sort((x, y) => {
         const hx = h2h[x.id], hy = h2h[y.id];
-        return (hy.pts - hx.pts) || (hy.gd - hx.gd) || (hy.gf - hx.gf) || (hy.r - hx.r);
+        return (hy.pts - hx.pts) || (hy.gd - hx.gd) || (hy.gf - hx.gf) ||
+          ((y.gf - y.ga) - (x.gf - x.ga)) || (y.gf - x.gf) || (rnd[x.id] - rnd[y.id]);
       });
       rows.splice(i, tied.length, ...tied);
-      i = j;
     }
+    i = j + 1;
   }
   return rows;
 }

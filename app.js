@@ -204,14 +204,15 @@ function groupClinch(g) {
   const ids = GROUPS[g];
   const pairs = [];
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) pairs.push([ids[i], ids[j]]);
-  const base = {}; ids.forEach(id => { base[id] = 0; });
+  // each played game as a deterministic W/D/L outcome ('a'|'b'|'d')
+  const fixed = [];
   const remaining = [];
   let played = 0;
   for (const [a, b] of pairs) {
     const kf = known && known.groups[pairKey(a, b)];
     if (kf) {
       const ag = kf.home === a ? kf.hg : kf.ag, bg = kf.home === a ? kf.ag : kf.hg;
-      if (ag > bg) base[a] += 3; else if (bg > ag) base[b] += 3; else { base[a] += 1; base[b] += 1; }
+      fixed.push({ a, b, res: ag > bg ? 'a' : bg > ag ? 'b' : 'd' });
       played++;
     } else remaining.push([a, b]);
   }
@@ -219,10 +220,8 @@ function groupClinch(g) {
   ids.forEach(id => { status[id] = { through: false, winner: false, runnerUp: false }; });
   if (!played) return status; // nothing real yet → nothing confirmed
 
-  // Group finished: standings are final — settle everything with the real
-  // FIFA tiebreakers (points → GD → goals → head-to-head), not the points-only
-  // worst-case used while games remain. (A runner-up tied on points but ahead
-  // on GD is now correctly locked.)
+  // Group finished: standings are final — settle everything (incl. GD) with
+  // the real FIFA 2026 tiebreakers via rankGroup.
   if (remaining.length === 0) {
     const stats = {};
     ids.forEach(id => { stats[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }; });
@@ -240,27 +239,48 @@ function groupClinch(g) {
     return status;
   }
 
-  // through: guaranteed top-2 (advancement). winner: guaranteed 1st.
-  // neverFirst: cannot finish 1st in any completion (someone always above).
+  // Games remain: enumerate every W/D/L completion. Ranking uses points, then
+  // HEAD-TO-HEAD points among teams level on points (deterministic from the
+  // W/D/L outcomes, and — per FIFA 2026 — applied before goal difference).
+  // Only a residual tie on points AND head-to-head points is left to GD, whose
+  // margins are still free, so that is counted against the team (worst case).
   ids.forEach(id => { status[id] = { through: true, winner: true, neverFirst: true }; });
   const k = remaining.length;
   const combos = Math.pow(3, k);
   for (let c = 0; c < combos; c++) {
-    const pts = Object.assign({}, base);
+    const results = fixed.slice();
     let n = c;
     for (let r = 0; r < k; r++) {
       const o = n % 3; n = (n / 3) | 0;
       const [a, b] = remaining[r];
-      if (o === 0) pts[a] += 3; else if (o === 1) pts[b] += 3; else { pts[a] += 1; pts[b] += 1; }
+      results.push({ a, b, res: o === 0 ? 'a' : o === 1 ? 'b' : 'd' });
+    }
+    const pts = {}; ids.forEach(id => { pts[id] = 0; });
+    for (const gm of results) {
+      if (gm.res === 'a') pts[gm.a] += 3; else if (gm.res === 'b') pts[gm.b] += 3; else { pts[gm.a]++; pts[gm.b]++; }
     }
     for (const id of ids) {
-      let above = 0, equal = 0;
+      const peers = ids.filter(o => pts[o] === pts[id]);
+      const h2h = {}; peers.forEach(p => { h2h[p] = 0; });
+      if (peers.length > 1) {
+        const pset = new Set(peers);
+        for (const gm of results) {
+          if (pset.has(gm.a) && pset.has(gm.b)) {
+            if (gm.res === 'a') h2h[gm.a] += 3; else if (gm.res === 'b') h2h[gm.b] += 3; else { h2h[gm.a]++; h2h[gm.b]++; }
+          }
+        }
+      }
+      let above = 0, residual = 0;
       for (const o of ids) {
         if (o === id) continue;
-        if (pts[o] > pts[id]) above++; else if (pts[o] === pts[id]) equal++;
+        if (pts[o] > pts[id]) above++;
+        else if (pts[o] === pts[id]) {
+          if (h2h[o] > h2h[id]) above++;            // ahead on head-to-head (locked)
+          else if (h2h[o] === h2h[id]) residual++;  // GD/goals decide → margins free
+        }
       }
-      const worstRank = 1 + above + equal; // ties counted against this team
-      const bestRank = 1 + above;          // ties won by this team
+      const worstRank = 1 + above + residual; // residual ties counted against
+      const bestRank = 1 + above;             // residual ties won by this team
       if (worstRank > 2) status[id].through = false;
       if (worstRank > 1) status[id].winner = false;
       if (bestRank < 2) status[id].neverFirst = false; // could be 1st here
