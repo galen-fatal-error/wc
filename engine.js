@@ -453,6 +453,29 @@ function monteCarlo(data, n, onProgress, known) {
   return { tally, n };
 }
 
+// ---------- per-slot occupancy (predictive bracket) ----------
+// For every bracket fixture, tally how often each team fills its home
+// slot, its away slot, and how often each team WINS it. From real data
+// (`known`) forward, this yields the single most likely team to occupy
+// every slot in the wallchart, plus the confidence for each.
+function slotMonteCarlo(data, n, known) {
+  const slots = {}; // matchId -> { home:{id:count}, away:{id:count}, win:{id:count} }
+  const bump = (obj, id) => { obj[id] = (obj[id] || 0) + 1; };
+  for (let i = 0; i < n; i++) {
+    const sim = simulateTournament(data, known);
+    for (const roundKey of ['r32', 'r16', 'qf', 'sf', 'third', 'final']) {
+      for (const m of sim.rounds[roundKey]) {
+        let s = slots[m.match];
+        if (!s) s = slots[m.match] = { home: {}, away: {}, win: {} };
+        bump(s.home, m.home);
+        bump(s.away, m.away);
+        bump(s.win, m.winner);
+      }
+    }
+  }
+  return { slots, n };
+}
+
 // ---------- single-team focus ----------
 // Run n full tournaments and, for one team, tally: where it finishes its
 // group, how far it advances, and — the headline — the distribution of

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 
@@ -96,11 +96,21 @@
   <section class="dashed-section" id="bracketSection">
     <span class="section-tag">FIG. 03 <span class="tag-accent">·</span> KNOCKOUT — MATCHES 73–104, FINAL JUL 19 · METLIFE</span>
     <h2 class="heading">The knockout sheet</h2>
-    <p class="footnote" style="margin-top:6px">Five rounds from the round of 32 to the final. Drawn matches go to
-    extra time, then penalties; red cards tilt the scoring model for the rest of a match. Labels show each slot's
-    origin until the simulation fills it. <span style="color:var(--color-peri)">Hover or tap any fixture</span> for pre-match
-    odds — and, once played, the full story: score, dismissals, shoot-out kicks. In matchday mode, tap fixtures
-    to play them yourself.</p>
+    <p class="footnote" style="margin-top:6px">The full 32-team wallchart, drawn the way FIFA published it — round of
+    32 on the outside, the final at the centre. Two ways to read it:
+    <span style="color:var(--color-peri)">Matchday</span> fills every slot from a single simulated tournament with its
+    scoreline; <span style="color:var(--color-peri)">Predictive</span> projects forward from the real, up-to-date
+    results to show the most likely team for each slot and how likely it is to land there. Hover or tap any fixture
+    for detail.</p>
+
+    <div class="ko-mode-bar">
+      <div class="ko-mode-toggle" id="koModeToggle">
+        <button class="ko-mode-btn active" data-komode="matchday">⚽ MATCHDAY</button>
+        <button class="ko-mode-btn" data-komode="predict">◎ PREDICTIVE</button>
+      </div>
+      <span class="ko-mode-status" id="koModeStatus">Simulated bracket — run Matchday, Run Once, or Live to fill it.</span>
+    </div>
+
     <div class="bracket-wrap" id="bracketWrap">
       <div class="bracket" id="bracket"></div>
       <div class="bracket-stack" id="bracketStack"></div>
@@ -144,9 +154,9 @@
 
 </main>
 
-<script src="data.js?v=9"></script>
-<script src="engine.js?v=9"></script>
-<script src="live.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="data.js?v=10"></script>
+<script src="engine.js?v=10"></script>
+<script src="live.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@
 'use strict';
 
 const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const ROUND_LABELS = {
@@ -29,6 +30,10 @@ const state = {
   mcContext: '',        // label override for the odds table
   live: null,           // { feed, kind, tick, playing, timer, lastSig }
   focus: null,          // last team-focus result
+  koMode: 'matchday',   // knockout view: 'matchday' (scores) | 'predict' (likelihoods)
+  mdView: null,         // last matchday bracket render args, to restore on toggle
+  predict: null,        // slot-occupancy monte carlo: { slots, n }
+  predictBusy: false,
 };
 
 const team = id => TEAMS[id];
@@ -68,6 +73,20 @@ function originLabel(ref) {
   if (kind === 'W') return '1' + key;
   if (kind === 'RU') return '2' + key;
   if (kind === 'T') return '3rd ' + THIRD_ALLOWED[key].join('/');
+  if (kind === 'M') return 'W' + key;
+  if (kind === 'L') return 'L' + key;
+  return ref;
+}
+
+// Compact seed code as the wallchart image draws it: 1E = winner of E,
+// 2A = runner-up of A, 3D = the third-placed side (from group D) that was
+// allocated here, Wxx = winner of an earlier match. When a third slot has
+// a known occupant we can show its real group; otherwise a neutral mark.
+function shortSeed(ref, teamId) {
+  const [kind, key] = ref.split(':');
+  if (kind === 'W') return '1' + key;
+  if (kind === 'RU') return '2' + key;
+  if (kind === 'T') return teamId ? '3' + groupOf(teamId) : '3·';
   if (kind === 'M') return 'W' + key;
   if (kind === 'L') return 'L' + key;
   return ref;
@@ -432,16 +451,40 @@ function matchById(sim, id) {
   return null;
 }
 
-// opts: { groupsDone, revealed:Set, live:matchId, interactive:bool }
-// omit opts entirely with a sim for a full reveal.
+// Most likely occupant of each slot, and the predicted winner, from the
+// slot-occupancy monte carlo (state.predict). Returns null until run.
+function predictMatch(id) {
+  const p = state.predict;
+  if (!p || !p.slots[id]) return null;
+  const s = p.slots[id];
+  const top = dist => {
+    let bid = null, bc = -1;
+    for (const k in dist) if (dist[k] > bc) { bc = dist[k]; bid = k; }
+    return bid == null ? null : { id: bid, pct: bc / p.n };
+  };
+  const win = top(s.win);
+  return { home: top(s.home), away: top(s.away), winnerId: win && win.id, winnerPct: win ? win.pct : 0 };
+}
+
+// opts: { groupsDone, revealed:Set, live:matchId, interactive:bool, mode }
+// mode 'matchday' (default) fills slots from `sim` with scores; mode
+// 'predict' fills them from state.predict with the most-likely team + %.
+// omit opts entirely with a sim for a full matchday reveal.
 function renderBracket(sim, opts = {}) {
+  const mode = opts.mode || 'matchday';
   let revealed = opts.revealed;
   if (!revealed) revealed = sim ? new Set(ALL_MATCH_IDS) : new Set();
   const groupsDone = sim ? (opts.groupsDone !== undefined ? opts.groupsDone : true) : false;
   const interactive = !!opts.interactive;
   const liveId = opts.live;
 
-  state.bracketView = { sim, revealed, groupsDone, interactive };
+  state.koMode = mode;
+  state.bracketView = { sim, revealed, groupsDone, interactive, mode };
+  if (mode === 'matchday') {
+    state.mdView = { sim, revealed, groupsDone, interactive, live: liveId };
+    if (sim) setKoStatus('⚽ MATCHDAY · one simulated tournament, with scores.');
+  }
+  syncKoModeButtons();
 
   const refKnown = ref => {
     const [kind, key] = ref.split(':');
@@ -449,13 +492,14 @@ function renderBracket(sim, opts = {}) {
     return groupsDone;
   };
 
+  // ----- matchday slot (simulated team + score) -----
   function slotHtml(ref, m, side) {
-    let name = `<span class="slot-origin">${originLabel(ref)}</span>`;
+    let name = `<span class="slot-origin">${shortSeed(ref)}</span>`;
     let score = '', cls = '', pen = '';
     if (sim && m && refKnown(ref)) {
       const tid = side === 'home' ? m.home : m.away;
       const t = team(tid);
-      name = `<span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
+      name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       if (revealed.has(m.match)) {
         const g = side === 'home' ? m.hg : m.ag;
         score = `<span class="slot-score">${g}</span>`;
@@ -467,68 +511,110 @@ function renderBracket(sim, opts = {}) {
     return `<div class="match-slot ${cls}">${name}${pen}${score}</div>`;
   }
 
-  function matchBox(id) {
+  // ----- predictive slot (most-likely team + its % to land here) -----
+  function slotHtmlPredict(ref, id, side) {
+    const pm = predictMatch(id);
+    const occ = pm && pm[side];
+    if (!occ) {
+      return `<div class="match-slot pre"><span class="slot-origin">${shortSeed(ref)}</span><span class="slot-name muted">—</span></div>`;
+    }
+    const t = team(occ.id);
+    const won = pm.winnerId === occ.id;
+    return `<div class="match-slot predict ${won ? 'winner' : ''}">
+      <span class="slot-origin">${shortSeed(ref, occ.id)}</span>
+      <span class="flag">${t.flag}</span>
+      <span class="slot-name">${t.name}</span>
+      <span class="slot-pct">${pct(occ.pct)}</span>
+      <span class="slot-bar" style="width:${Math.min(100, occ.pct * 100)}%"></span>
+    </div>`;
+  }
+
+  function matchBox(id, side) {
     const spec = SPEC_BY_ID[id];
+    const r32 = ROUND_OF[id] === 'r32' ? 'r32' : '';
+    if (mode === 'predict') {
+      return `<div class="match-box predict-box ${r32}" data-mid="${id}" data-side="${side}">
+        <span class="match-no">M${id}</span>
+        ${slotHtmlPredict(spec.home, id, 'home')}
+        ${slotHtmlPredict(spec.away, id, 'away')}
+      </div>`;
+    }
     const m = matchById(sim, id);
     const played = revealed.has(id);
     const live = liveId === id;
     const realLock = played && m && m.real;
     const liveReal = m && m.live;
     const clickable = interactive && !played && !live && m && refKnown(spec.home) && refKnown(spec.away);
-    return `<div class="match-box ${played ? 'match-played' : ''} ${live ? 'match-live pulsing' : ''} ${realLock ? 'real-locked' : ''} ${liveReal ? 'live-real' : ''} ${clickable ? 'clickable' : ''}" data-mid="${id}">
+    return `<div class="match-box ${r32} ${played ? 'match-played' : ''} ${live ? 'match-live pulsing' : ''} ${realLock ? 'real-locked' : ''} ${liveReal ? 'live-real' : ''} ${clickable ? 'clickable' : ''}" data-mid="${id}" data-side="${side}">
       <span class="match-no">M${id}${m && m.et && played ? ' · AET' : ''}</span>
       ${slotHtml(spec.home, m, 'home')}
       ${slotHtml(spec.away, m, 'away')}
     </div>`;
   }
 
-  function column(ids, title, count, roundKey) {
+  function column(ids, title, count, roundKey, side) {
     const liveRound = liveId && ROUND_OF[liveId] === roundKey;
-    return `<div class="bracket-round ${liveRound ? 'round-live' : ''}">
+    return `<div class="bracket-round ${liveRound ? 'round-live' : ''}" data-side="${side}">
       <div class="round-title">${title} <span class="round-count">· ${count}</span></div>
-      ${ids.map(matchBox).join('')}
+      ${ids.map(id => matchBox(id, side)).join('')}
     </div>`;
   }
 
   const L = BRACKET_LAYOUT.left, R = BRACKET_LAYOUT.right;
-  const finalM = matchById(sim, '104');
-  const champ = sim && revealed.has('104') ? team(finalM.winner) : null;
+  let champ = null, champPct = '';
+  if (mode === 'predict') {
+    const pm = predictMatch('104');
+    if (pm && pm.winnerId) { champ = team(pm.winnerId); champPct = pct(pm.winnerPct); }
+  } else {
+    const finalM = matchById(sim, '104');
+    champ = sim && revealed.has('104') ? team(finalM.winner) : null;
+  }
 
-  const centerCol = `<div class="bracket-round" style="justify-content:center; gap:14px;">
+  const platePct = champPct ? `<div class="champ-pct">${champPct} to lift it</div>` : '';
+  const centerCol = `<div class="bracket-round bracket-center" style="justify-content:center; gap:12px;" data-side="center">
     <div class="round-title">FINAL <span class="round-count">· JUL 19 · NY/NJ</span></div>
-    ${matchBox('104')}
+    ${matchBox('104', 'center')}
     <div class="champion-plate">
+      <div class="trophy">🏆</div>
       <span class="champ-flag">${champ ? champ.flag : '◌'}</span>
-      <div class="mono-micro">WORLD CHAMPIONS</div>
+      <div class="mono-micro">${mode === 'predict' ? 'PREDICTED CHAMPION' : 'WORLD CHAMPIONS'}</div>
       <div class="champ-name">${champ ? champ.name : '—'}</div>
+      ${platePct}
     </div>
     <div class="round-title" style="padding-top:10px">BRONZE <span class="round-count">· M103</span></div>
-    ${matchBox('103')}
+    ${matchBox('103', 'center')}
   </div>`;
 
   $('#bracket').innerHTML =
-    column(L.r32, 'R32', 'L1', 'r32') +
-    column(L.r16, 'R16', 'L2', 'r16') +
-    column(L.qf, 'QF', 'L3', 'qf') +
-    column(L.sf, 'SF', 'M101', 'sf') +
+    column(L.r32, 'R32', 'L1', 'r32', 'left') +
+    column(L.r16, 'R16', 'L2', 'r16', 'left') +
+    column(L.qf, 'QF', 'L3', 'qf', 'left') +
+    column(L.sf, 'SF', 'M101', 'sf', 'left') +
     centerCol +
-    column(R.sf, 'SF', 'M102', 'sf') +
-    column(R.qf, 'QF', 'R3', 'qf') +
-    column(R.r16, 'R16', 'R2', 'r16') +
-    column(R.r32, 'R32', 'R1', 'r32');
+    column(R.sf, 'SF', 'M102', 'sf', 'right') +
+    column(R.qf, 'QF', 'R3', 'qf', 'right') +
+    column(R.r16, 'R16', 'R2', 'r16', 'right') +
+    column(R.r32, 'R32', 'R1', 'r32', 'right');
+
+  $('#bracket').classList.toggle('mode-predict', mode === 'predict');
+
+  // draw the connector tree once the columns have laid out
+  requestAnimationFrame(drawBracketLines);
 
   // mobile: round-stacked vertical layout (same match boxes, so the
   // delegated tooltip + click-to-play handlers cover both renderings)
   const champPlate = `<div class="champion-plate">
+    <div class="trophy">🏆</div>
     <span class="champ-flag">${champ ? champ.flag : '◌'}</span>
-    <div class="mono-micro">WORLD CHAMPIONS</div>
+    <div class="mono-micro">${mode === 'predict' ? 'PREDICTED CHAMPION' : 'WORLD CHAMPIONS'}</div>
     <div class="champ-name">${champ ? champ.name : '—'}</div>
+    ${platePct}
   </div>`;
   const stackRound = (ids, title, key, sub) => {
     const liveRound = liveId && ROUND_OF[liveId] === key;
     return `<div class="stack-round ${liveRound ? 'round-live' : ''}">
       <div class="stack-round-head">${title} <span class="rc">${sub}</span></div>
-      ${ids.map(matchBox).join('')}
+      ${ids.map(id => matchBox(id, 'left')).join('')}
     </div>`;
   };
   $('#bracketStack').innerHTML =
@@ -541,9 +627,91 @@ function renderBracket(sim, opts = {}) {
     stackRound(ROUND_IDS.third, 'BRONZE FINAL', 'third', 'M103');
 }
 
+// SVG connector tree: link each fixture to the two it feeds from. Drawn
+// from rendered positions so it tracks the wallchart at any width.
+function drawBracketLines() {
+  const bracket = $('#bracket');
+  if (!bracket) return;
+  let svg = bracket.querySelector('.bracket-lines');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'bracket-lines');
+    bracket.prepend(svg);
+  }
+  const W = bracket.scrollWidth, H = bracket.scrollHeight;
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const base = bracket.getBoundingClientRect();
+  const boxRect = id => {
+    const el = bracket.querySelector(`.match-box[data-mid="${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left - base.left, right: r.right - base.left, cy: r.top - base.top + r.height / 2 };
+  };
+  let paths = '';
+  for (const id of ALL_MATCH_IDS) {
+    const spec = SPEC_BY_ID[id];
+    const parent = boxRect(id);
+    if (!parent) continue;
+    for (const ref of [spec.home, spec.away]) {
+      const [kind, key] = ref.split(':');
+      if (kind !== 'M') continue; // only winner-advances links form the tree
+      const child = boxRect(key);
+      if (!child) continue;
+      let x1, x2;
+      if (child.cy <= parent.cy + 0.5 && child.right <= parent.left + 1) { x1 = child.right; x2 = parent.left; }
+      else if (child.left >= parent.right - 1) { x1 = child.left; x2 = parent.right; }
+      else if (child.right <= parent.left + 1) { x1 = child.right; x2 = parent.left; }
+      else { x1 = child.right; x2 = parent.left; }
+      const mx = (x1 + x2) / 2;
+      paths += `<path d="M${x1.toFixed(1)} ${child.cy.toFixed(1)} H${mx.toFixed(1)} V${parent.cy.toFixed(1)} H${x2.toFixed(1)}"/>`;
+    }
+  }
+  svg.innerHTML = paths;
+}
+
+// Predictive tooltip: the full likelihood distribution for each slot of a
+// fixture, headed by the projected matchup and who is favoured to win it.
+function bracketTipPredict(id) {
+  const p = state.predict;
+  let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]} · PROJECTED</span>`;
+  const s = p && p.slots[id];
+  if (!s) {
+    html += `<span class="tip-row">Run a projection to see the most likely teams here.</span>`;
+    return html;
+  }
+  const pm = predictMatch(id);
+  if (pm && pm.home && pm.away) {
+    const h = team(pm.home.id), a = team(pm.away.id);
+    html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
+      <span class="tip-strong">${a.name} ${a.flag}</span> <span style="color:#4d4d4d">— most likely tie</span></span>`;
+    if (pm.winnerId) {
+      const w = team(pm.winnerId);
+      html += `<span class="tip-row tip-mono">${w.flag} <span class="tip-strong">${w.name}</span> favoured to win this fixture · <span class="tip-strong">${pct(pm.winnerPct)}</span></span>`;
+    }
+  }
+  const list = (label, dist) => {
+    const entries = Object.entries(dist).sort((x, y) => y[1] - x[1]).slice(0, 4);
+    let rows = `<span class="tip-rule">${label} — likelihood to fill this slot:</span>`;
+    for (const [tid, c] of entries) {
+      const t = team(tid);
+      rows += `<div class="tip-pred-row"><span class="tpr-name">${t.flag} ${t.name}</span>
+        <span class="tpr-track"><span class="tpr-fill" style="width:${Math.min(100, 100 * c / p.n)}%"></span></span>
+        <span class="tpr-val">${pct(c / p.n)}</span></div>`;
+    }
+    return rows;
+  };
+  html += list('TOP SLOT', s.home);
+  html += list('BOTTOM SLOT', s.away);
+  html += `<span class="tip-rule" style="color:#4d4d4d">Frequencies over ${p.n.toLocaleString()} simulations from the current real data.</span>`;
+  return html;
+}
+
 function bracketTip(id) {
   const view = state.bracketView;
   if (!view) return null;
+  if (view.mode === 'predict') return bracketTipPredict(id);
   const { sim, revealed, groupsDone, interactive } = view;
   const spec = SPEC_BY_ID[id];
   const m = matchById(sim, id);
@@ -594,6 +762,72 @@ function bracketTip(id) {
     html += `<span class="tip-rule">Winner advances to Match ${NEXT_MATCH[id].match}.</span>`;
   }
   return html;
+}
+
+// ---------- knockout view mode (matchday ⇄ predictive) ----------
+
+function setKoStatus(html) {
+  const el = $('#koModeStatus');
+  if (el) el.innerHTML = html;
+}
+
+function syncKoModeButtons() {
+  $$('.ko-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.komode === state.koMode));
+}
+
+// One-shot, silent pull of current real results (for predictive mode when
+// Live hasn't been run yet). Sets state.known; failures are swallowed so
+// the projection can still run pre-tournament.
+async function syncLiveQuiet() {
+  try {
+    const feed = makeRealFeed(WC_DATA);
+    const snap = await feed.snapshot();
+    const folded = buildKnown(snap);
+    state.known = folded.known;
+    return folded;
+  } catch (e) {
+    return null;
+  }
+}
+
+const PREDICT_RUNS = 1500;
+
+async function enterPredict() {
+  if (state.predictBusy) return;
+  state.predictBusy = true;
+  hideTip();
+  setKoStatus('◎ Projecting from real results …');
+  // ensure we have the latest real data; pull quietly if Live wasn't run
+  let pulled = null;
+  if (!state.known) pulled = await syncLiveQuiet();
+  await sleep(20); // let the status repaint before the synchronous run
+  const t0 = performance.now();
+  state.predict = slotMonteCarlo(WC_DATA, PREDICT_RUNS, state.known || undefined);
+  const ms = Math.round(performance.now() - t0);
+  renderBracket(null, { mode: 'predict' });
+  const basis = state.known
+    ? `conditioned on ${knownCount()} real result${knownCount() === 1 ? '' : 's'}`
+    : (pulled === null ? 'no live data reachable — pre-tournament projection' : 'pre-tournament projection');
+  setKoStatus(`◎ PREDICTIVE · most-likely team per slot · ${basis} · ${PREDICT_RUNS.toLocaleString()} sims · ${ms}ms`);
+  state.predictBusy = false;
+}
+
+function setKoMode(mode) {
+  if (mode === state.koMode && mode === 'predict') return;
+  if (mode === 'predict') {
+    state.koMode = 'predict';
+    syncKoModeButtons();
+    enterPredict();
+  } else {
+    state.koMode = 'matchday';
+    syncKoModeButtons();
+    const v = state.mdView;
+    if (v) renderBracket(v.sim, { ...v, mode: 'matchday' });
+    else renderBracket(null, { mode: 'matchday' });
+    setKoStatus(state.sim || (state.matchday && state.matchday.sim)
+      ? '⚽ MATCHDAY · one simulated tournament, with scores.'
+      : 'Simulated bracket — run Matchday, Run Once, or Live to fill it.');
+  }
 }
 
 // ---------- monte carlo ----------
@@ -701,6 +935,9 @@ function resetAll() {
   state.known = null;
   state.mc = null;
   state.mcContext = '';
+  state.predict = null;
+  state.mdView = null;
+  state.koMode = 'matchday';
   hideTip();
   $('#matchdayStage').classList.remove('active');
   $('#liveStage').classList.remove('active');
@@ -709,6 +946,7 @@ function resetAll() {
   renderFlow(null);
   renderBracket(null);
   renderMC();
+  setKoStatus('Simulated bracket — run Matchday, Run Once, or Live to fill it.');
   setNote('SHEET CLEAR · KICK-OFF JUN 11 · ESTADIO AZTECA');
 }
 
@@ -1248,6 +1486,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = ev.target.closest('.match-box.clickable');
     if (el && bracketWrap.contains(el)) playMatch(el.dataset.mid);
   });
+
+  // knockout view mode toggle: MATCHDAY (scores) ⇄ PREDICTIVE (likelihoods)
+  $('#koModeToggle').addEventListener('click', ev => {
+    const btn = ev.target.closest('.ko-mode-btn');
+    if (btn) setKoMode(btn.dataset.komode);
+  });
+
+  // keep the connector tree aligned when the viewport changes
+  let resizeT;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(drawBracketLines, 120);
+  }, { passive: true });
 
   // touch: dismiss the bottom-sheet tooltip on scroll or tap-away
   const dismissSheet = ev => {
