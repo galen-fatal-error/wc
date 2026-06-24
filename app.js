@@ -37,6 +37,8 @@ const state = {
   qualOdds: null,       // monte carlo qualification odds: { tally, n }
   confirmed: null,      // Set of teamIds with a clinched knockout place (real)
   confirmedWinner: null,// Set of teamIds that have clinched top spot (real)
+  lockWinnerGroup: null,// { group -> teamId } locked into the 1x R32 slot
+  lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
 };
 
 const team = id => TEAMS[id];
@@ -213,10 +215,12 @@ function groupClinch(g) {
     } else remaining.push([a, b]);
   }
   const status = {};
-  ids.forEach(id => { status[id] = { through: false, winner: false }; });
+  ids.forEach(id => { status[id] = { through: false, winner: false, runnerUp: false }; });
   if (!played) return status; // nothing real yet → nothing confirmed
 
-  ids.forEach(id => { status[id] = { through: true, winner: true }; });
+  // through: guaranteed top-2 (advancement). winner: guaranteed 1st.
+  // neverFirst: cannot finish 1st in any completion (someone always above).
+  ids.forEach(id => { status[id] = { through: true, winner: true, neverFirst: true }; });
   const k = remaining.length;
   const combos = Math.pow(3, k);
   for (let c = 0; c < combos; c++) {
@@ -234,31 +238,43 @@ function groupClinch(g) {
         if (pts[o] > pts[id]) above++; else if (pts[o] === pts[id]) equal++;
       }
       const worstRank = 1 + above + equal; // ties counted against this team
+      const bestRank = 1 + above;          // ties won by this team
       if (worstRank > 2) status[id].through = false;
       if (worstRank > 1) status[id].winner = false;
+      if (bestRank < 2) status[id].neverFirst = false; // could be 1st here
     }
   }
+  // runner-up locked: guaranteed top-2 AND can never be 1st => always 2nd
+  ids.forEach(id => { status[id].runnerUp = status[id].through && status[id].neverFirst; });
   return status;
 }
 
-// teams that have secured a knockout berth / top spot, cached by real data
+// Confirmed-placement state, cached by the real data. Tracks both team-level
+// advancement (for group rows) and EXACT slot locks (for the bracket): a
+// round-of-32 slot is only locked once a team's group POSITION is settled —
+// the group winner pins the 1x slot, a guaranteed runner-up pins the 2x slot.
 let confirmSig = null;
 function ensureConfirmed() {
   const sig = state.known ? JSON.stringify(state.known.groups) : 'none';
   if (state.confirmed && confirmSig === sig) return;
   confirmSig = sig;
   const through = new Set(), winner = new Set();
+  const winnerByGroup = {}, runnerByGroup = {};
   if (state.known) {
     for (const g of Object.keys(GROUPS)) {
       const st = groupClinch(g);
       for (const id of GROUPS[g]) {
-        if (st[id] && st[id].through) through.add(id);
-        if (st[id] && st[id].winner) winner.add(id);
+        if (!st[id]) continue;
+        if (st[id].through) through.add(id);
+        if (st[id].winner) { winner.add(id); winnerByGroup[g] = id; }
+        if (st[id].runnerUp) runnerByGroup[g] = id;
       }
     }
   }
-  state.confirmed = through;
-  state.confirmedWinner = winner;
+  state.confirmed = through;          // secured advancement (group-row gold)
+  state.confirmedWinner = winner;     // secured top spot
+  state.lockWinnerGroup = winnerByGroup;   // g -> team locked into 1x slot
+  state.lockRunnerGroup = runnerByGroup;   // g -> team locked into 2x slot
 }
 
 // The games to show for a group given the current sim / real data and an
@@ -682,10 +698,18 @@ function renderBracket(sim, opts = {}) {
   }
   syncKoModeButtons();
   ensureConfirmed();
-  // a team is "confirmed" into the R32 box it occupies if it has clinched a
-  // knockout place from real results (only meaningful on R32 group slots)
-  const confSet = state.confirmed || new Set();
-  const confirmedSlot = (id, tid) => ROUND_OF[id] === 'r32' && tid && confSet.has(tid) ? ' confirmed' : '';
+  // An R32 slot is gold only when its exact POSITION is locked by real
+  // results: the 1x slot once a group winner is clinched, the 2x slot once a
+  // runner-up is clinched. Advancement alone (team is top-2 but order still
+  // open, e.g. two group rivals) does NOT lock a specific slot.
+  const lockW = state.lockWinnerGroup || {}, lockR = state.lockRunnerGroup || {};
+  const confirmedSlot = (id, ref) => {
+    if (ROUND_OF[id] !== 'r32') return '';
+    const [kind, g] = ref.split(':');
+    if (kind === 'W' && lockW[g]) return ' confirmed';
+    if (kind === 'RU' && lockR[g]) return ' confirmed';
+    return '';
+  };
 
   const refKnown = ref => {
     const [kind, key] = ref.split(':');
@@ -700,7 +724,7 @@ function renderBracket(sim, opts = {}) {
     if (sim && m && refKnown(ref)) {
       const tid = side === 'home' ? m.home : m.away;
       const t = team(tid);
-      cls += confirmedSlot(id, tid);
+      cls += confirmedSlot(id, ref);
       name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       if (revealed.has(m.match)) {
         const g = side === 'home' ? m.hg : m.ag;
@@ -722,7 +746,7 @@ function renderBracket(sim, opts = {}) {
     }
     const t = team(occ.id);
     const won = pm.winnerId === occ.id;
-    return `<div class="match-slot predict ${won ? 'winner' : ''}${confirmedSlot(id, occ.id)}">
+    return `<div class="match-slot predict ${won ? 'winner' : ''}${confirmedSlot(id, ref)}">
       <span class="slot-origin">${shortSeed(ref, occ.id)}</span>
       <span class="flag">${t.flag}</span>
       <span class="slot-name">${t.name}</span>
