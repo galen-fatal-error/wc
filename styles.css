@@ -345,6 +345,14 @@ h3.subheading {
   font-size: 9px;
 }
 
+.third-chip .third-pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ash);
+  margin-left: 2px;
+}
+.third-chip.qualified .third-pct { color: var(--color-peri); font-weight: 700; }
+
 /* ---------- flow / placement diagram ---------- */
 
 .flow-wrap { margin-top: 28px; overflow-x: auto; }

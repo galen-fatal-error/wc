@@ -566,23 +566,36 @@ function groupRowTip(teamId) {
   return html;
 }
 
-function renderThirds(sim) {
+// Best-thirds race, ranked by each team's chance to advance via the third-
+// place route (P(finish 3rd AND make the best-8)). Uses the always-on
+// qualification Monte Carlo — no manual simulation run required.
+function renderThirds() {
   const strip = $('#thirdsStrip');
-  if (!sim) {
-    strip.innerHTML = `<span class="mono-label">Best thirds · ranking of all 12 third-placed teams — top 8 advance</span>
-      <div class="thirds-row"><span class="third-chip">awaiting simulation</span></div>`;
+  ensureQualOdds();
+  const q = state.qualOdds;
+  if (!q) {
+    strip.innerHTML = `<span class="mono-label">Best thirds · chance to advance as a third-placed team</span>
+      <div class="thirds-row"><span class="third-chip">computing…</span></div>`;
     return;
   }
+  const rows = Object.keys(q.tally)
+    .map(id => ({ id, adv: (q.tally[id].thirdAdv || 0) / q.n, third: (q.tally[id].third3rd || 0) / q.n }))
+    .filter(r => r.adv > 0.004)
+    .sort((a, b) => b.adv - a.adv)
+    .slice(0, 12);
+
   let chips = '';
-  sim.thirdsRanked.forEach((row, i) => {
-    const t = team(row.id);
-    const q = i < 8;
-    chips += `<span class="third-chip ${q ? 'qualified' : ''}" data-team="${t.id}">
+  rows.forEach((r, i) => {
+    const t = team(r.id);
+    chips += `<span class="third-chip ${r.adv >= 0.5 ? 'qualified' : ''}" data-team="${t.id}">
       <span class="rank-no">${String(i + 1).padStart(2, '0')}</span>
-      <span class="flag">${t.flag}</span>3${row.group} ${t.code} · ${row.pts}pt
+      <span class="flag">${t.flag}</span>3${groupOf(r.id)} ${t.code}
+      <span class="third-pct">${pct(r.adv)}</span>
     </span>`;
   });
-  strip.innerHTML = `<span class="mono-label">Best thirds · top 8 of 12 advance <span style="color:var(--color-peri)">▸ qualified</span></span>
+  if (!chips) chips = '<span class="third-chip">no third-place contenders yet</span>';
+  strip.innerHTML = `<span class="mono-label">Best thirds · chance to advance as a third-placed team — 8 of 12 thirds go through
+    <span style="color:var(--color-peri)">▸ &gt;50%</span></span>
     <div class="thirds-row">${chips}</div>`;
 }
 
@@ -1200,7 +1213,8 @@ async function refreshRealData(announce) {
   // re-render the bracket even with no simulation so secured fixtures show.
   if (!state.matchday) {
     renderGroups(state.sim || null);
-    if (state.sim) { renderThirds(state.sim); renderFlow(state.sim); }
+    renderThirds(); // best-thirds race reflects the new real data
+    if (state.sim) renderFlow(state.sim);
     if (state.koMode === 'predict') enterPredict();
     else renderBracket(state.sim || null);
   }

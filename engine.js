@@ -479,13 +479,16 @@ function simulateTournament(data, known) {
 function monteCarlo(data, n, onProgress, known) {
   const tally = {};
   for (const id of Object.keys(data.TEAMS)) {
-    tally[id] = { groupWin: 0, r32: 0, r16: 0, qf: 0, sf: 0, final: 0, champion: 0 };
+    // third3rd: finished 3rd in group; thirdAdv: finished 3rd AND advanced
+    tally[id] = { groupWin: 0, r32: 0, r16: 0, qf: 0, sf: 0, final: 0, champion: 0, third3rd: 0, thirdAdv: 0 };
   }
   for (let i = 0; i < n; i++) {
     const sim = simulateTournament(data, known);
     for (const g of Object.keys(sim.groupResults)) {
       tally[sim.groupResults[g].table[0].id].groupWin++;
+      tally[sim.groupResults[g].table[2].id].third3rd++; // 3rd-placed side
     }
+    for (const t of sim.qualifiedThirds) tally[t.id].thirdAdv++; // best-8 thirds
     const seen = id => tally[id];
     for (const m of sim.rounds.r32) { seen(m.home).r32++; seen(m.away).r32++; }
     for (const m of sim.rounds.r16) { seen(m.home).r16++; seen(m.away).r16++; }
