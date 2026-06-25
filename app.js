@@ -758,20 +758,47 @@ function matchById(sim, id) {
   return null;
 }
 
-// Most likely occupant of each slot, and the predicted winner, from the
-// slot-occupancy monte carlo (state.predict). Returns null until run.
-function predictMatch(id) {
+// Build ONE coherent projected ("chalk") bracket from the slot-occupancy
+// Monte Carlo. The round of 32 is seeded with the most-likely team to emerge
+// from the groups into each slot; from there the HEAD-TO-HEAD favourite of
+// each shown matchup advances. This keeps the bracket self-consistent: the
+// team shown winning a tie (always ≥50%) is the one that fills the next slot.
+function buildChalk() {
   const p = state.predict;
-  if (!p || !p.slots[id]) return null;
-  const s = p.slots[id];
-  const top = dist => {
+  if (!p) return null;
+  const topId = dist => {
     let bid = null, bc = -1;
     for (const k in dist) if (dist[k] > bc) { bc = dist[k]; bid = k; }
-    return bid == null ? null : { id: bid, pct: bc / p.n };
+    return bid;
   };
-  const win = top(s.win);
-  return { home: top(s.home), away: top(s.away), winnerId: win && win.id, winnerPct: win ? win.pct : 0 };
+  const winnerOf = {}, loserOf = {}, occ = {};
+  for (const roundKey of ['r32', 'r16', 'qf', 'sf', 'third', 'final']) {
+    for (const spec of BRACKET[roundKey]) {
+      const id = spec.match;
+      const s = p.slots[id] || { home: {}, away: {}, win: {} };
+      const resolve = (ref, dist) => {
+        const [kind, key] = ref.split(':');
+        if (kind === 'M') return winnerOf[key] || null;   // winner advances
+        if (kind === 'L') return loserOf[key] || null;     // loser → bronze
+        return topId(dist);                                // group-origin slot
+      };
+      const home = resolve(spec.home, s.home);
+      const away = resolve(spec.away, s.away);
+      const reach = (tid, dist) => tid ? (dist[tid] || 0) / p.n : 0;
+      let winner = home || away, loser = null, pHome = 0.5;
+      if (home && away) {
+        pHome = koWinProb(team(home).elo, team(away).elo);
+        winner = pHome >= 0.5 ? home : away;
+        loser = winner === home ? away : home;
+      }
+      winnerOf[id] = winner; loserOf[id] = loser;
+      occ[id] = { home, away, winner, loser, pHome, homeReach: reach(home, s.home), awayReach: reach(away, s.away) };
+    }
+  }
+  return { occ, n: p.n };
 }
+// per-match accessor over the cached chalk bracket
+function chalkMatch(id) { return state.chalk ? state.chalk.occ[id] : null; }
 
 // opts: { groupsDone, revealed:Set, live:matchId, interactive:bool, mode }
 // mode 'matchday' (default) fills slots from `sim` with scores; mode
@@ -793,6 +820,7 @@ function renderBracket(sim, opts = {}) {
   }
   syncKoModeButtons();
   ensureConfirmed();
+  if (mode === 'predict') state.chalk = buildChalk();
   // An R32 slot is gold only when its exact POSITION is locked by real
   // results: the 1x slot once a group winner is clinched, the 2x slot once a
   // runner-up is clinched. Advancement alone (team is top-2 but order still
@@ -851,21 +879,22 @@ function renderBracket(sim, opts = {}) {
     return `<div class="match-slot ${cls}">${name}${pen}${score}</div>`;
   }
 
-  // ----- predictive slot (most-likely team + its % to land here) -----
+  // ----- predictive slot (projected team in the chalk bracket + reach %) -----
   function slotHtmlPredict(ref, id, side) {
-    const pm = predictMatch(id);
-    const occ = pm && pm[side];
-    if (!occ) {
+    const cm = chalkMatch(id);
+    const tid = cm && cm[side];
+    if (!tid) {
       return `<div class="match-slot pre"><span class="slot-origin">${shortSeed(ref)}</span><span class="slot-name muted">—</span></div>`;
     }
-    const t = team(occ.id);
-    const won = pm.winnerId === occ.id;
+    const t = team(tid);
+    const reach = side === 'home' ? cm.homeReach : cm.awayReach;
+    const won = cm.winner === tid;
     return `<div class="match-slot predict ${won ? 'winner' : ''}${confirmedSlot(id, ref)}">
-      <span class="slot-origin">${shortSeed(ref, occ.id)}</span>
+      <span class="slot-origin">${shortSeed(ref, tid)}</span>
       <span class="flag">${t.flag}</span>
       <span class="slot-name">${t.name}</span>
-      <span class="slot-pct">${pct(occ.pct)}</span>
-      <span class="slot-bar" style="width:${Math.min(100, occ.pct * 100)}%"></span>
+      <span class="slot-pct">${pct(reach)}</span>
+      <span class="slot-bar" style="width:${Math.min(100, reach * 100)}%"></span>
     </div>`;
   }
 
@@ -903,8 +932,12 @@ function renderBracket(sim, opts = {}) {
   const L = BRACKET_LAYOUT.left, R = BRACKET_LAYOUT.right;
   let champ = null, champPct = '';
   if (mode === 'predict') {
-    const pm = predictMatch('104');
-    if (pm && pm.winnerId) { champ = team(pm.winnerId); champPct = pct(pm.winnerPct); }
+    const cm = chalkMatch('104');
+    if (cm && cm.winner) {
+      champ = team(cm.winner);
+      const p = state.predict;
+      champPct = p ? pct((p.slots['104'].win[cm.winner] || 0) / p.n) : '';
+    }
   } else {
     const finalM = matchById(sim, '104');
     champ = sim && revealed.has('104') ? team(finalM.winner) : null;
@@ -1011,41 +1044,38 @@ function drawBracketLines() {
   svg.innerHTML = paths;
 }
 
-// Predictive tooltip: the full likelihood distribution for each slot of a
-// fixture, headed by the projected matchup and who is favoured to win it.
+// Predictive tooltip: the projected (chalk) matchup for this slot, the
+// head-to-head favourite that advances (always ≥50%), and how likely each
+// shown team is to actually reach this slot.
 function bracketTipPredict(id) {
   const p = state.predict;
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]} · PROJECTED</span>`;
   html += dateRow(koDate(id));
-  const s = p && p.slots[id];
-  if (!s) {
-    html += `<span class="tip-row">Run a projection to see the most likely teams here.</span>`;
+  const cm = chalkMatch(id);
+  if (!p || !cm || !cm.home || !cm.away) {
+    html += `<span class="tip-row">Earlier rounds resolve first — this tie fills once both sides are projected.</span>`;
     return html;
   }
-  const pm = predictMatch(id);
-  if (pm && pm.home && pm.away) {
-    const h = team(pm.home.id), a = team(pm.away.id);
-    html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
-      <span class="tip-strong">${a.name} ${a.flag}</span> <span style="color:#4d4d4d">— most likely tie</span></span>`;
-    if (pm.winnerId) {
-      const w = team(pm.winnerId);
-      html += `<span class="tip-row tip-mono">${w.flag} <span class="tip-strong">${w.name}</span> favoured to win this fixture · <span class="tip-strong">${pct(pm.winnerPct)}</span></span>`;
-    }
-  }
-  const list = (label, dist) => {
-    const entries = Object.entries(dist).sort((x, y) => y[1] - x[1]).slice(0, 4);
-    let rows = `<span class="tip-rule">${label} — likelihood to fill this slot:</span>`;
-    for (const [tid, c] of entries) {
-      const t = team(tid);
-      rows += `<div class="tip-pred-row"><span class="tpr-name">${t.flag} ${t.name}</span>
-        <span class="tpr-track"><span class="tpr-fill" style="width:${Math.min(100, 100 * c / p.n)}%"></span></span>
-        <span class="tpr-val">${pct(c / p.n)}</span></div>`;
-    }
-    return rows;
-  };
-  html += list('TOP SLOT', s.home);
-  html += list('BOTTOM SLOT', s.away);
-  html += `<span class="tip-rule" style="color:#4d4d4d">Frequencies over ${p.n.toLocaleString()} simulations from the current real data.</span>`;
+  const h = team(cm.home), a = team(cm.away);
+  const pH = cm.pHome; // head-to-head incl. ET / pens
+  const [la, lb] = goalLambdas(h.elo, a.elo);
+  const [w90, d90, l90] = outcomeProbs(la, lb);
+  const w = team(cm.winner);
+  const favPct = cm.winner === cm.home ? pH : 1 - pH;
+  html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
+    <span class="tip-strong">${a.name} ${a.flag}</span> <span style="color:#4d4d4d">— projected tie</span></span>
+    <div class="tip-odds-bar"><span class="home-share" style="width:${w90 * 100}%"></span><span class="draw-share" style="width:${d90 * 100}%"></span><span class="away-share" style="flex:1"></span></div>
+    <span class="tip-row tip-mono">${h.code} <span class="tip-strong">${pct(w90)}</span> · draw ${pct(d90)} · <span class="tip-strong">${pct(l90)}</span> ${a.code} <span style="color:#4d4d4d">(90′)</span></span>
+    <span class="tip-row tip-mono">${w.flag} <span class="tip-strong">${w.name}</span> favoured to advance · <span class="tip-strong">${pct(favPct)}</span> <span style="color:#4d4d4d">(incl. ET / pens)</span></span>`;
+  // how likely each shown team is to actually reach this slot
+  html += `<span class="tip-rule">Chance to reach this slot:</span>
+    <div class="tip-pred-row"><span class="tpr-name">${h.flag} ${h.name}</span>
+      <span class="tpr-track"><span class="tpr-fill" style="width:${Math.min(100, cm.homeReach * 100)}%"></span></span>
+      <span class="tpr-val">${pct(cm.homeReach)}</span></div>
+    <div class="tip-pred-row"><span class="tpr-name">${a.flag} ${a.name}</span>
+      <span class="tpr-track"><span class="tpr-fill" style="width:${Math.min(100, cm.awayReach * 100)}%"></span></span>
+      <span class="tpr-val">${pct(cm.awayReach)}</span></div>`;
+  html += `<span class="tip-rule" style="color:#4d4d4d">Projected bracket: most-likely teams out of the groups, favourites advance · ${p.n.toLocaleString()} sims.</span>`;
   return html;
 }
 
@@ -1195,7 +1225,7 @@ async function enterPredict() {
   const basis = state.known
     ? `conditioned on ${knownCount()} real result${knownCount() === 1 ? '' : 's'}`
     : (pulled === null ? 'no live data reachable — pre-tournament projection' : 'pre-tournament projection');
-  setKoStatus(`◎ PREDICTIVE · most-likely team per slot · ${basis} · ${PREDICT_RUNS.toLocaleString()} sims · ${ms}ms`);
+  setKoStatus(`◎ PREDICTIVE · projected bracket — favourites advance · ${basis} · ${PREDICT_RUNS.toLocaleString()} sims · ${ms}ms`);
   state.predictBusy = false;
 }
 
