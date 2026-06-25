@@ -40,6 +40,7 @@ const state = {
   confirmedPos: null,   // Set of teamIds whose EXACT finishing position is locked
   lockWinnerGroup: null,// { group -> teamId } locked into the 1x R32 slot
   lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
+  matchDates: { group: {}, ko: Object.assign({}, MATCH_DATES_KO) }, // fixture dates
 };
 
 const team = id => TEAMS[id];
@@ -155,6 +156,26 @@ function bindTip(container, selector, contentFn) {
 }
 
 const pct = p => Math.round(p * 100) + '%';
+
+// ---------- match dates ----------
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// format an ISO yyyy-mm-dd without timezone surprises
+function fmtMatchDate(iso) {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2] - 1, d = +m[3];
+  const wd = WEEKDAYS[new Date(Date.UTC(y, mo, d)).getUTCDay()];
+  return `${wd} ${MONTHS[mo]} ${d}`;
+}
+const koDate = matchId => (state.matchDates && state.matchDates.ko[matchId]) || null;
+const groupDate = (a, b) => (state.matchDates && state.matchDates.group[pairKey(a, b)]) || null;
+// tooltip date line (or a gentle placeholder)
+function dateRow(iso) {
+  const f = fmtMatchDate(iso);
+  return `<span class="tip-row tip-date">📅 ${f || 'Date TBD'}</span>`;
+}
 
 // ---------- group stage ----------
 
@@ -371,13 +392,13 @@ function groupGamesHtml(g, shown) {
       const ha = s.home === fx.a ? s.hg : s.ag;
       const hb = s.home === fx.a ? s.ag : s.hg;
       const aw = ha > hb ? 'w' : '', bw = hb > ha ? 'w' : '';
-      cells += `<div class="gg ${s.real ? 'gg-real' : ''} ${s.live ? 'gg-live' : ''}" data-team="${fx.a}">
+      cells += `<div class="gg ${s.real ? 'gg-real' : ''} ${s.live ? 'gg-live' : ''}" data-ga="${fx.a}" data-gb="${fx.b}" data-played="1">
         <span class="gg-side ${aw}"><span class="flag">${A.flag}</span>${A.code}</span>
         <span class="gg-score">${ha}–${hb}${s.live ? '′' : ''}</span>
         <span class="gg-side r ${bw}">${B.code}<span class="flag">${B.flag}</span></span>
       </div>`;
     } else {
-      cells += `<div class="gg gg-pending" data-team="${fx.a}">
+      cells += `<div class="gg gg-pending" data-ga="${fx.a}" data-gb="${fx.b}">
         <span class="gg-side"><span class="flag">${A.flag}</span>${A.code}</span>
         <span class="gg-score">v</span>
         <span class="gg-side r">${B.code}<span class="flag">${B.flag}</span></span>
@@ -447,6 +468,31 @@ function renderGroups(sim, revealedGames) {
       ${groupGamesHtml(g, shown)}`;
     grid.appendChild(card);
   }
+}
+
+// Tooltip for a single group game: date + pre-match win/draw/win odds, and
+// the result if it has been played (odds shown are always pre-match).
+function groupGameTip(aId, bId) {
+  const A = team(aId), B = team(bId), g = groupOf(aId);
+  const [w, d, l] = h2hOdds(aId, bId); // win / draw / loss for A (host-adjusted)
+  let html = `<span class="tip-head">${A.flag} ${A.name} v ${B.name} ${B.flag} · GROUP ${g}</span>`;
+  html += dateRow(groupDate(aId, bId));
+  html += `<div class="tip-odds-bar"><span class="home-share" style="width:${w * 100}%"></span><span class="draw-share" style="width:${d * 100}%"></span><span class="away-share" style="flex:1"></span></div>
+    <span class="tip-row tip-mono">${A.code} <span class="tip-strong">${pct(w)}</span> · draw ${pct(d)} · <span class="tip-strong">${pct(l)}</span> ${B.code}
+      <span style="color:#4d4d4d">— pre-match</span></span>`;
+  const pk = pairKey(aId, bId);
+  const kf = state.known && state.known.groups[pk];
+  const kl = state.known && state.known.groupsLive && state.known.groupsLive[pk];
+  if (kf) {
+    const ag = kf.home === aId ? kf.hg : kf.ag, bg = kf.home === aId ? kf.ag : kf.hg;
+    html += `<span class="tip-rule">Full time: <span class="tip-strong">${A.code} ${ag}–${bg} ${B.code}</span> — odds above are from kick-off.</span>`;
+  } else if (kl) {
+    const ag = kl.home === aId ? kl.hg : kl.ag, bg = kl.home === aId ? kl.ag : kl.hg;
+    html += `<span class="tip-rule">Live ${kl.minute}′: <span class="tip-strong">${A.code} ${ag}–${bg} ${B.code}</span> — odds above are from kick-off.</span>`;
+  } else {
+    html += `<span class="tip-rule">Single-match odds from team ratings${(WC_HOSTS[aId] || WC_HOSTS[bId]) ? ', incl. host advantage' : ''}.</span>`;
+  }
+  return html;
 }
 
 function groupRowTip(teamId) {
@@ -970,6 +1016,7 @@ function drawBracketLines() {
 function bracketTipPredict(id) {
   const p = state.predict;
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]} · PROJECTED</span>`;
+  html += dateRow(koDate(id));
   const s = p && p.slots[id];
   if (!s) {
     html += `<span class="tip-row">Run a projection to see the most likely teams here.</span>`;
@@ -1016,6 +1063,7 @@ function bracketTip(id) {
   };
 
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]}</span>`;
+  html += dateRow(koDate(id));
 
   if (!sim || !m || !refKnown(spec.home) || !refKnown(spec.away)) {
     html += `<span class="tip-row"><span class="tip-strong">${originLabel(spec.home)}</span> v
@@ -1026,13 +1074,16 @@ function bracketTip(id) {
 
   const h = team(m.home), a = team(m.away);
   const pH = koWinProb(h.elo, a.elo);
+  const [la, lb] = goalLambdas(h.elo, a.elo);
+  const [w90, d90, l90] = outcomeProbs(la, lb);
   const played = revealed.has(id);
 
   html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
     <span class="tip-strong">${a.name} ${a.flag}</span></span>
-    <div class="tip-odds-bar"><span class="home-share" style="width:${pH * 100}%"></span><span class="away-share" style="flex:1"></span></div>
-    <span class="tip-row tip-mono">${h.code} <span class="tip-strong">${pct(pH)}</span> · ${pct(1 - pH)} ${a.code}
-      <span style="color:#4d4d4d">— pre-match odds (${h.elo} v ${a.elo})</span></span>`;
+    <div class="tip-odds-bar"><span class="home-share" style="width:${w90 * 100}%"></span><span class="draw-share" style="width:${d90 * 100}%"></span><span class="away-share" style="flex:1"></span></div>
+    <span class="tip-row tip-mono">${h.code} <span class="tip-strong">${pct(w90)}</span> · draw ${pct(d90)} · <span class="tip-strong">${pct(l90)}</span> ${a.code}
+      <span style="color:#4d4d4d">— pre-match (90′)</span></span>
+    <span class="tip-row tip-mono" style="color:var(--color-steel)">${h.code} <span class="tip-strong">${pct(pH)}</span> · ${pct(1 - pH)} ${a.code} to advance (incl. ET / pens)</span>`;
 
   if (played) {
     html += `<span class="tip-rule">FULL TIME: <span class="tip-strong">${h.code} ${m.hg}–${m.ag} ${a.code}</span>${m.et ? ' after extra time' : ''}.</span>`;
@@ -1079,6 +1130,13 @@ async function syncLiveQuiet() {
     const folded = buildKnown(snap);
     state.known = folded.known;
     state.knownFolded = folded;
+    // merge feed dates over the hardcoded knockout dates
+    if (folded.dates) {
+      state.matchDates = {
+        group: Object.assign({}, folded.dates.group),
+        ko: Object.assign({}, MATCH_DATES_KO, folded.dates.ko),
+      };
+    }
     return folded;
   } catch (e) {
     return null;
@@ -1799,8 +1857,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#skipBtn').addEventListener('click', skipMatchday);
 
-  // tooltips: group rows + third chips
+  // tooltips: group rows, single games, and third chips
   bindTip($('#groupsGrid'), 'tr[data-team]', el => groupRowTip(el.dataset.team));
+  bindTip($('#groupsGrid'), '.gg[data-ga]', el => groupGameTip(el.dataset.ga, el.dataset.gb));
   bindTip($('#thirdsStrip'), '.third-chip[data-team]', el => groupRowTip(el.dataset.team));
 
   // flow map: tooltip + match highlighting
@@ -1844,7 +1903,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!tipEl.classList.contains('mobile-sheet') || tipEl.style.display !== 'block') return;
     if (ev.type === 'scroll') { hideTip(); clearFlowFocus(); return; }
     const t = ev.target;
-    const onInteractive = t && typeof t.closest === 'function' && t.closest('[data-team],[data-hover],[data-mid]');
+    const onInteractive = t && typeof t.closest === 'function' && t.closest('[data-team],[data-hover],[data-mid],[data-ga]');
     if (!onInteractive) { hideTip(); clearFlowFocus(); }
   };
   window.addEventListener('scroll', dismissSheet, { passive: true });

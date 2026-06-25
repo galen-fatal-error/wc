@@ -18,8 +18,14 @@
 // ---- fold a snapshot into the engine's conditioning structure ----
 function buildKnown(snapshot) {
   const known = { groups: {}, groupsLive: {}, ko: {}, koLive: {} };
+  const dates = { group: {}, ko: {} };
   let finished = 0, live = 0, groupFinished = 0, koFinished = 0;
   for (const fx of snapshot) {
+    // capture the scheduled date for every fixture, regardless of status
+    if (fx.date) {
+      if (fx.stage === 'group') { if (fx.home && fx.away) dates.group[pairKey(fx.home, fx.away)] = fx.date; }
+      else if (fx.matchNo) dates.ko[fx.matchNo] = fx.date;
+    }
     if (fx.status === 'SCHEDULED') continue;
     if (fx.stage === 'group') {
       const key = pairKey(fx.home, fx.away);
@@ -43,7 +49,7 @@ function buildKnown(snapshot) {
       }
     }
   }
-  return { known, finished, live, groupFinished, koFinished };
+  return { known, dates, finished, live, groupFinished, koFinished };
 }
 
 // ============================================================
@@ -120,7 +126,7 @@ function parseFifaMatch(m) {
   if (m.Winner) winner = m.Winner === (m.Home && m.Home.IdTeam) ? home : (m.Winner === (m.Away && m.Away.IdTeam) ? away : null);
   else if (status === 'FINISHED') winner = hg > ag ? home : (ag > hg ? away : (pens ? (pens.h > pens.a ? home : away) : null));
 
-  const item = { stage, home, away, status, minute: parseMinute(m.MatchTime), hg, ag, events: [] };
+  const item = { stage, home, away, status, minute: parseMinute(m.MatchTime), hg, ag, events: [], date: String(m.Date || m.LocalDate || '').slice(0, 10) };
   if (stage === 'group') {
     item.groupKey = groupOfId(home);
     item.id = 'g:' + item.groupKey + ':' + home + ':' + away;
@@ -146,7 +152,7 @@ function parseWc26Game(g) {
   const hg = parseInt(g.home_score, 10) || 0;
   const ag = parseInt(g.away_score, 10) || 0;
 
-  const item = { stage, home, away, status, minute: parseMinute(te), hg, ag, events: [] };
+  const item = { stage, home, away, status, minute: parseMinute(te), hg, ag, events: [], date: String(g.local_date || g.date || g.datetime || g.match_date || '').slice(0, 10) };
   if (stage === 'group') {
     item.groupKey = groupOfId(home);
     item.id = 'g:' + item.groupKey + ':' + home + ':' + away;

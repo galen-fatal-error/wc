@@ -878,7 +878,21 @@ h3.subheading {
   border: 1px solid var(--color-graphite);
 }
 .tip-odds-bar .home-share { background: var(--color-peri); }
+.tip-odds-bar .draw-share { background: var(--color-steel); }
 .tip-odds-bar .away-share { background: var(--color-graphite); }
+
+.tooltip .tip-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-peri);
+  margin-top: 4px;
+}
+
+/* group game cells are interactive (hover for date + odds) */
+.group-games .gg { cursor: default; }
+.group-games .gg:hover { border-color: var(--color-steel); }
+.group-games .gg.gg-real:hover { border-color: var(--color-real); }
 
 /* ---------- hover states ---------- */
 
