@@ -41,6 +41,7 @@ const state = {
   lockWinnerGroup: null,// { group -> teamId } locked into the 1x R32 slot
   lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
   matchDates: { group: {}, ko: Object.assign({}, MATCH_DATES_KO) }, // fixture dates
+  koFixtures: {},       // FIFA-confirmed knockout matchups from the live feed
 };
 
 const team = id => TEAMS[id];
@@ -581,7 +582,8 @@ function renderThirds() {
   const rows = Object.keys(q.tally)
     .map(id => ({ id, adv: (q.tally[id].thirdAdv || 0) / q.n, third: (q.tally[id].third3rd || 0) / q.n }))
     .filter(r => r.adv > 0.004)
-    .sort((a, b) => b.adv - a.adv)
+    // stable, sensible order among ties (e.g. several locked 100% thirds)
+    .sort((a, b) => b.adv - a.adv || b.third - a.third || team(b.id).elo - team(a.id).elo)
     .slice(0, 12);
 
   let chips = '';
@@ -855,6 +857,13 @@ function renderBracket(sim, opts = {}) {
     if (kind === 'RU') return lockR[g] || null;
     return null;
   };
+  // FIFA-confirmed knockout matchup (from the live feed): the actual team
+  // assigned to this slot, including third-place allocations. This is the
+  // authoritative source for a confirmed fixture (e.g. USA v Bosnia).
+  const feedTeam = (id, side) => {
+    const f = state.koFixtures && state.koFixtures[id];
+    return f ? (side === 'home' ? f.home : f.away) : null;
+  };
 
   const refKnown = ref => {
     const [kind, key] = ref.split(':');
@@ -869,7 +878,9 @@ function renderBracket(sim, opts = {}) {
     if (sim && m && refKnown(ref)) {
       const tid = side === 'home' ? m.home : m.away;
       const t = team(tid);
-      cls += confirmedSlot(id, ref);
+      // gold if FIFA has confirmed this exact matchup (and the sim agrees) or
+      // the group position is clinched
+      if (feedTeam(id, side) === tid || confirmedSlot(id, ref)) cls += ' confirmed';
       name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       if (revealed.has(m.match)) {
         const g = side === 'home' ? m.hg : m.ag;
@@ -879,10 +890,10 @@ function renderBracket(sim, opts = {}) {
         if (m.pens) pen = `<span class="pen-note">${side === 'home' ? m.pens.h : m.pens.a}p</span>`;
       }
     } else {
-      // no simulated placement yet — but if real results have locked this
-      // slot, show the secured team there (gold), so confirmed fixtures
-      // appear on a fresh sheet without running a simulation
-      const lockTid = lockedSlotTeam(id, ref);
+      // no simulated placement yet — show any team locked into this slot by
+      // real results (a confirmed FIFA fixture, or a clinched group position),
+      // so secured fixtures appear on a fresh sheet without a simulation
+      const lockTid = feedTeam(id, side) || lockedSlotTeam(id, ref);
       if (lockTid) {
         const t = team(lockTid);
         cls += ' confirmed';
@@ -893,16 +904,23 @@ function renderBracket(sim, opts = {}) {
   }
 
   // ----- predictive slot (projected team in the chalk bracket + reach %) -----
+  // A FIFA-confirmed fixture overrides the projection: show the real team,
+  // gold, at 100% (it has actually reached this slot).
   function slotHtmlPredict(ref, id, side) {
     const cm = chalkMatch(id);
-    const tid = cm && cm[side];
+    const ft = feedTeam(id, side);
+    const tid = ft || (cm && cm[side]);
     if (!tid) {
       return `<div class="match-slot pre"><span class="slot-origin">${shortSeed(ref)}</span><span class="slot-name muted">—</span></div>`;
     }
     const t = team(tid);
-    const reach = side === 'home' ? cm.homeReach : cm.awayReach;
-    const won = cm.winner === tid;
-    return `<div class="match-slot predict ${won ? 'winner' : ''}${confirmedSlot(id, ref)}">
+    const isConf = !!ft || !!confirmedSlot(id, ref);
+    const reach = ft ? 1 : (side === 'home' ? cm.homeReach : cm.awayReach);
+    const fx = state.koFixtures && state.koFixtures[id];
+    const won = ft
+      ? (fx && fx.winner ? fx.winner === tid : (cm && cm.winner === tid))
+      : (cm && cm.winner === tid);
+    return `<div class="match-slot predict ${won ? 'winner' : ''}${isConf ? ' confirmed' : ''}">
       <span class="slot-origin">${shortSeed(ref, tid)}</span>
       <span class="flag">${t.flag}</span>
       <span class="slot-name">${t.name}</span>
@@ -1064,6 +1082,10 @@ function bracketTipPredict(id) {
   const p = state.predict;
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]} · PROJECTED</span>`;
   html += dateRow(koDate(id));
+  if (state.koFixtures && state.koFixtures[id]) {
+    const f = state.koFixtures[id], fh = team(f.home), fa = team(f.away);
+    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Confirmed by FIFA</span> — ${fh.flag} ${fh.name} v ${fa.name} ${fa.flag}</span>`;
+  }
   const cm = chalkMatch(id);
   if (!p || !cm || !cm.home || !cm.away) {
     html += `<span class="tip-row">Earlier rounds resolve first — this tie fills once both sides are projected.</span>`;
@@ -1107,6 +1129,10 @@ function bracketTip(id) {
 
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]}</span>`;
   html += dateRow(koDate(id));
+  if (state.koFixtures && state.koFixtures[id]) {
+    const f = state.koFixtures[id], fh = team(f.home), fa = team(f.away);
+    html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Confirmed by FIFA</span> — ${fh.flag} ${fh.name} v ${fa.name} ${fa.flag}</span>`;
+  }
 
   if (!sim || !m || !refKnown(spec.home) || !refKnown(spec.away)) {
     html += `<span class="tip-row"><span class="tip-strong">${originLabel(spec.home)}</span> v
@@ -1180,6 +1206,7 @@ async function syncLiveQuiet() {
         ko: Object.assign({}, MATCH_DATES_KO, folded.dates.ko),
       };
     }
+    state.koFixtures = folded.koFixtures || {};
     return folded;
   } catch (e) {
     return null;

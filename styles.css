@@ -316,14 +316,14 @@ h3.subheading {
 }
 
 .thirds-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
 
 .third-chip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   border: 1px dashed var(--color-graphite);
@@ -349,7 +349,7 @@ h3.subheading {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-ash);
-  margin-left: 2px;
+  margin-left: auto;
 }
 .third-chip.qualified .third-pct { color: var(--color-peri); font-weight: 700; }
 

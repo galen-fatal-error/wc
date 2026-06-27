@@ -19,12 +19,20 @@
 function buildKnown(snapshot) {
   const known = { groups: {}, groupsLive: {}, ko: {}, koLive: {} };
   const dates = { group: {}, ko: {} };
+  const koFixtures = {}; // FIFA-confirmed knockout matchups (both teams set), any status
   let finished = 0, live = 0, groupFinished = 0, koFinished = 0;
   for (const fx of snapshot) {
     // capture the scheduled date for every fixture, regardless of status
     if (fx.date) {
       if (fx.stage === 'group') { if (fx.home && fx.away) dates.group[pairKey(fx.home, fx.away)] = fx.date; }
       else if (fx.matchNo) dates.ko[fx.matchNo] = fx.date;
+    }
+    // a knockout fixture with both teams resolved is a confirmed matchup
+    if (fx.stage !== 'group' && fx.matchNo && fx.home && fx.away) {
+      koFixtures[fx.matchNo] = {
+        home: fx.home, away: fx.away, status: fx.status, winner: fx.winner || null,
+        hg: fx.hg, ag: fx.ag, et: !!fx.et, pens: fx.pens || null,
+      };
     }
     if (fx.status === 'SCHEDULED') continue;
     if (fx.stage === 'group') {
@@ -49,7 +57,7 @@ function buildKnown(snapshot) {
       }
     }
   }
-  return { known, dates, finished, live, groupFinished, koFinished };
+  return { known, dates, koFixtures, finished, live, groupFinished, koFinished };
 }
 
 // ============================================================
