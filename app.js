@@ -42,6 +42,7 @@ const state = {
   lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
   matchDates: { group: {}, ko: Object.assign({}, MATCH_DATES_KO) }, // fixture dates
   koFixtures: {},       // FIFA-confirmed knockout matchups from the live feed
+  thirdsView: 'projected', // best-thirds list: 'projected' (%) | 'current' (standings)
 };
 
 const team = id => TEAMS[id];
@@ -570,34 +571,63 @@ function groupRowTip(teamId) {
 // Best-thirds race, ranked by each team's chance to advance via the third-
 // place route (P(finish 3rd AND make the best-8)). Uses the always-on
 // qualification Monte Carlo — no manual simulation run required.
-function renderThirds() {
-  const strip = $('#thirdsStrip');
+// the 12 third-placed teams (one per group) from current real standings,
+// each with points, goal difference, and its chance to advance as a third.
+function bestThirdsData() {
   ensureQualOdds();
   const q = state.qualOdds;
-  if (!q) {
-    strip.innerHTML = `<span class="mono-label">Best thirds · chance to advance as a third-placed team</span>
-      <div class="thirds-row"><span class="third-chip">computing…</span></div>`;
-    return;
+  const out = [];
+  for (const g of Object.keys(GROUPS)) {
+    const table = tableFromGames(g, groupShownGames(g, null, null)); // real games only
+    const row = table[2]; // current third place
+    if (!row) continue;
+    out.push({
+      id: row.id, group: g, pts: row.pts, gd: row.gf - row.ga, gf: row.gf, played: row.p,
+      adv: q ? (q.tally[row.id].thirdAdv || 0) / q.n : 0,
+    });
   }
-  const rows = Object.keys(q.tally)
-    .map(id => ({ id, adv: (q.tally[id].thirdAdv || 0) / q.n, third: (q.tally[id].third3rd || 0) / q.n }))
-    .filter(r => r.adv > 0.004)
-    // stable, sensible order among ties (e.g. several locked 100% thirds)
-    .sort((a, b) => b.adv - a.adv || b.third - a.third || team(b.id).elo - team(a.id).elo)
-    .slice(0, 12);
+  return out;
+}
+
+// Best-thirds race. Two views (toggle): PROJECTED order (by chance to advance
+// as a third) and CURRENT placement (live points → GD ranking). Both list all
+// 12 third-placed teams with points and goal difference. 8 of 12 advance.
+function renderThirds() {
+  const strip = $('#thirdsStrip');
+  const view = state.thirdsView === 'current' ? 'current' : 'projected';
+  const data = bestThirdsData();
+  if (view === 'current') {
+    data.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || team(b.id).elo - team(a.id).elo);
+  } else {
+    data.sort((a, b) => b.adv - a.adv || b.pts - a.pts || b.gd - a.gd || team(b.id).elo - team(a.id).elo);
+  }
 
   let chips = '';
-  rows.forEach((r, i) => {
+  data.forEach((r, i) => {
     const t = team(r.id);
-    chips += `<span class="third-chip ${r.adv >= 0.5 ? 'qualified' : ''}" data-team="${t.id}">
+    const inCut = view === 'current' ? i < 8 : r.adv >= 0.5;
+    const gd = (r.gd > 0 ? '+' : '') + r.gd;
+    const pctHtml = view === 'projected' ? `<span class="third-pct">${pct(r.adv)}</span>` : '';
+    chips += `<span class="third-chip ${inCut ? 'qualified' : ''}" data-team="${t.id}">
       <span class="rank-no">${String(i + 1).padStart(2, '0')}</span>
-      <span class="flag">${t.flag}</span>3${groupOf(r.id)} ${t.code}
-      <span class="third-pct">${pct(r.adv)}</span>
+      <span class="flag">${t.flag}</span><span class="third-code">3${r.group} ${t.code}</span>
+      <span class="third-stat">${r.pts}p · ${gd}</span>
+      ${pctHtml}
     </span>`;
   });
-  if (!chips) chips = '<span class="third-chip">no third-place contenders yet</span>';
-  strip.innerHTML = `<span class="mono-label">Best thirds · chance to advance as a third-placed team — 8 of 12 thirds go through
-    <span style="color:var(--color-peri)">▸ &gt;50%</span></span>
+  if (!chips) chips = '<span class="third-chip">no group games played yet</span>';
+
+  const label = view === 'current'
+    ? 'Best thirds · current placement — points → goal difference'
+    : 'Best thirds · projected order — chance to advance as a third';
+  const toggle = `<div class="thirds-toggle" id="thirdsToggle">
+    <button data-tview="projected" class="${view === 'projected' ? 'active' : ''}">PROJECTED %</button>
+    <button data-tview="current" class="${view === 'current' ? 'active' : ''}">CURRENT</button>
+  </div>`;
+  strip.innerHTML = `<div class="thirds-head">
+      <span class="mono-label">${label} · 8 of 12 advance <span style="color:var(--color-peri)">▸ ${view === 'current' ? 'in the cut' : '&gt;50%'}</span></span>
+      ${toggle}
+    </div>
     <div class="thirds-row">${chips}</div>`;
 }
 
@@ -1932,6 +1962,12 @@ document.addEventListener('DOMContentLoaded', () => {
   bindTip($('#groupsGrid'), 'tr[data-team]', el => groupRowTip(el.dataset.team));
   bindTip($('#groupsGrid'), '.gg[data-ga]', el => groupGameTip(el.dataset.ga, el.dataset.gb));
   bindTip($('#thirdsStrip'), '.third-chip[data-team]', el => groupRowTip(el.dataset.team));
+
+  // best-thirds view toggle (projected % ⇄ current placement)
+  $('#thirdsStrip').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-tview]');
+    if (b) { state.thirdsView = b.dataset.tview; renderThirds(); }
+  });
 
   // flow map: tooltip + match highlighting
   const flowWrap = $('#flowWrap');

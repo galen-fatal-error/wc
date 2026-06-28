@@ -315,9 +315,42 @@ h3.subheading {
   background: var(--color-carbon);
 }
 
+.thirds-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.thirds-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.thirds-toggle button {
+  appearance: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ash);
+  padding: 5px 12px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.thirds-toggle button + button { border-left: 1px solid var(--color-graphite); }
+.thirds-toggle button:hover { color: var(--color-paper); }
+.thirds-toggle button.active { background: var(--color-peri); color: var(--color-void); }
+
 .thirds-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
@@ -345,12 +378,23 @@ h3.subheading {
   font-size: 9px;
 }
 
+.third-chip .third-code { white-space: nowrap; }
+
+.third-chip .third-stat {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-steel);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .third-chip .third-pct {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-ash);
-  margin-left: auto;
+  margin-left: 8px;
 }
+.third-chip.qualified .third-stat { color: var(--color-ash); }
 .third-chip.qualified .third-pct { color: var(--color-peri); font-weight: 700; }
 
 /* ---------- flow / placement diagram ---------- */
