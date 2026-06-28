@@ -346,19 +346,36 @@ function rankThirds(groupResults) {
 // Assign the 8 qualified thirds to slots via backtracking so every slot
 // constraint is satisfied (FIFA's published allocation guarantees a
 // perfect matching exists for every combination).
-function allocateThirds(qualifiedThirds, thirdSlots) {
+function allocateThirds(qualifiedThirds, thirdSlots, known) {
   const groups = qualifiedThirds.map(t => t.group);
   const byGroup = {};
   qualifiedThirds.forEach(t => { byGroup[t.group] = t; });
-
-  // order slots by fewest options first (most constrained)
-  const slots = thirdSlots.map(s => ({
-    ...s,
-    options: s.allowed.filter(g => groups.includes(g)),
-  })).sort((a, b) => a.options.length - b.options.length);
+  const groupOfId = {};
+  qualifiedThirds.forEach(t => { groupOfId[t.id] = t.group; });
 
   const assignment = {};
   const used = new Set();
+
+  // Honour FIFA-confirmed third allocations: in a confirmed third-slot
+  // fixture the away team is the assigned third. Lock those first so the
+  // simulated bracket matches reality (and doesn't reshuffle locked ties).
+  if (known && known.koFixtures) {
+    for (const s of thirdSlots) {
+      const fix = known.koFixtures[s.match];
+      if (!fix) continue;
+      const g = groupOfId[fix.away] || groupOfId[fix.home];
+      if (g && byGroup[g] && !used.has(g)) {
+        assignment[s.match] = byGroup[g];
+        used.add(g);
+      }
+    }
+  }
+
+  // order remaining slots by fewest options first (most constrained)
+  const slots = thirdSlots
+    .filter(s => !assignment[s.match])
+    .map(s => ({ ...s, options: s.allowed.filter(g => groups.includes(g) && !used.has(g)) }))
+    .sort((a, b) => a.options.length - b.options.length);
 
   function backtrack(idx) {
     if (idx === slots.length) return true;
@@ -376,7 +393,7 @@ function allocateThirds(qualifiedThirds, thirdSlots) {
 
   if (!backtrack(0)) {
     // should not happen with FIFA's table; fall back to greedy any-order
-    const remaining = [...qualifiedThirds];
+    const remaining = qualifiedThirds.filter(t => !used.has(t.group));
     for (const slot of slots) {
       const pick = remaining.find(t => slot.options.includes(t.group)) || remaining[0];
       assignment[slot.match] = pick;
@@ -421,7 +438,7 @@ function simulateTournament(data, known) {
 
   const thirdsRanked = rankThirds(groupResults);
   const qualifiedThirds = thirdsRanked.slice(0, 8);
-  const thirdAssignRows = allocateThirds(qualifiedThirds, BRACKET.thirdSlots);
+  const thirdAssignRows = allocateThirds(qualifiedThirds, BRACKET.thirdSlots, known);
   const thirdAssign = {};
   for (const m of Object.keys(thirdAssignRows)) {
     thirdAssign[m] = team(thirdAssignRows[m].id);

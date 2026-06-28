@@ -1237,6 +1237,9 @@ async function syncLiveQuiet() {
       };
     }
     state.koFixtures = folded.koFixtures || {};
+    // expose confirmed fixtures to the engine so simulations (incl. matchday)
+    // honour FIFA's third-place allocation instead of reshuffling locked ties
+    state.known.koFixtures = state.koFixtures;
     return folded;
   } catch (e) {
     return null;
