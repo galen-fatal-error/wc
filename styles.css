@@ -693,6 +693,12 @@ h3.subheading {
 .match-box.r32 .match-odds { padding: 2px 4px 0; }
 .tooltip .tip-venue { color: var(--color-steel); }
 
+/* matchday: projected (not-yet-played) occupants shown dimmed */
+.match-slot.proj { color: var(--color-steel); }
+.match-slot.proj .slot-name { color: var(--color-steel); font-weight: 400; }
+.match-slot.proj .flag { opacity: 0.55; }
+.match-slot.proj .slot-origin { color: var(--color-graphite); }
+
 /* predictive tooltip distribution rows */
 .tip-pred-row {
   display: flex;

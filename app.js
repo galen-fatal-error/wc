@@ -903,7 +903,10 @@ function renderBracket(sim, opts = {}) {
   }
   syncKoModeButtons();
   ensureConfirmed();
-  if (mode === 'predict') state.chalk = buildChalk();
+  // build the projection for BOTH modes: predictive shows reach %, matchday
+  // uses it to fill (dimmed) + odds the not-yet-played rounds
+  ensurePredictData();
+  state.chalk = buildChalk();
   // An R32 slot is gold only when its exact POSITION is locked by real
   // results: the 1x slot once a group winner is clinched, the 2x slot once a
   // runner-up is clinched. Advancement alone (team is top-2 but order still
@@ -958,14 +961,18 @@ function renderBracket(sim, opts = {}) {
         if (m.pens) pen = `<span class="pen-note">${side === 'home' ? m.pens.h : m.pens.a}p</span>`;
       }
     } else {
-      // no simulated placement yet — show any team locked into this slot by
-      // real results (a confirmed FIFA fixture, or a clinched group position),
-      // so secured fixtures appear on a fresh sheet without a simulation
+      // no simulated placement yet. Show any team locked in by real results
+      // (a confirmed FIFA fixture or a clinched group position) in gold; else
+      // fall back to the projected most-likely team (dimmed) so the whole
+      // ladder is populated with odds without running a simulation.
       const lockTid = feedTeam(id, side) || realSlotTeam(ref) || lockedSlotTeam(id, ref);
-      if (lockTid) {
-        const t = team(lockTid);
-        cls += ' confirmed';
-        name = `<span class="slot-origin">${shortSeed(ref, lockTid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
+      const cm = chalkMatch(id);
+      const projTid = cm && cm[side];
+      const tid = lockTid || projTid;
+      if (tid) {
+        const t = team(tid);
+        cls += lockTid ? ' confirmed' : ' proj';
+        name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       }
     }
     return `<div class="match-slot ${cls}">${name}${pen}${score}</div>`;
@@ -1012,9 +1019,10 @@ function renderBracket(sim, opts = {}) {
     if (mode === 'predict') { const cm = chalkMatch(id); return cm ? [cm.home, cm.away] : [null, null]; }
     const m = matchById(sim, id);
     if (sim && m && refKnown(spec.home) && refKnown(spec.away)) return [m.home, m.away];
+    const cm = chalkMatch(id);
     return [
-      feedTeam(id, 'home') || realSlotTeam(spec.home) || lockedSlotTeam(id, spec.home),
-      feedTeam(id, 'away') || realSlotTeam(spec.away) || lockedSlotTeam(id, spec.away),
+      feedTeam(id, 'home') || realSlotTeam(spec.home) || lockedSlotTeam(id, spec.home) || (cm && cm.home),
+      feedTeam(id, 'away') || realSlotTeam(spec.away) || lockedSlotTeam(id, spec.away) || (cm && cm.away),
     ];
   }
 
@@ -1352,6 +1360,16 @@ async function refreshRealData(announce) {
 
 const PREDICT_RUNS = 1500;
 
+// slot-occupancy projection, cached by the current real data — used by both
+// Predictive (reach %) and Matchday (to fill/odds the not-yet-played rounds)
+let predictSig = null;
+function ensurePredictData() {
+  const sig = state.known ? JSON.stringify(state.known) : 'base';
+  if (state.predict && predictSig === sig) return;
+  predictSig = sig;
+  state.predict = slotMonteCarlo(WC_DATA, PREDICT_RUNS, state.known || undefined);
+}
+
 async function enterPredict() {
   if (state.predictBusy) return;
   state.predictBusy = true;
@@ -1362,7 +1380,8 @@ async function enterPredict() {
   if (!state.known) pulled = await syncLiveQuiet();
   await sleep(20); // let the status repaint before the synchronous run
   const t0 = performance.now();
-  state.predict = slotMonteCarlo(WC_DATA, PREDICT_RUNS, state.known || undefined);
+  predictSig = null; // force a fresh projection
+  ensurePredictData();
   const ms = Math.round(performance.now() - t0);
   renderBracket(null, { mode: 'predict' });
   const basis = state.known
@@ -1386,7 +1405,7 @@ function setKoMode(mode) {
     else renderBracket(null, { mode: 'matchday' });
     setKoStatus(state.sim || (state.matchday && state.matchday.sim)
       ? '⚽ MATCHDAY · one simulated tournament, with scores.'
-      : 'Simulated bracket — run Matchday or Run Once to fill it.');
+      : '⚽ MATCHDAY · real results in gold, projected matchups dimmed · run Matchday or Run Once to play it out.');
   }
 }
 
@@ -1503,7 +1522,7 @@ function resetAll() {
   renderFlow(null);
   renderBracket(null);
   renderMC();
-  setKoStatus('Simulated bracket — run Matchday or Run Once to fill it.');
+  setKoStatus('⚽ MATCHDAY · real results in gold, projected matchups dimmed · run Matchday or Run Once to play it out.');
   setNote(state.known && knownCount() ? `SHEET CLEAR · ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'} STILL ON` : 'SHEET CLEAR · KICK-OFF JUN 11 · ESTADIO AZTECA');
 }
 
