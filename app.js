@@ -821,29 +821,63 @@ function buildChalk() {
     for (const spec of BRACKET[roundKey]) {
       const id = spec.match;
       const s = p.slots[id] || { home: {}, away: {}, win: {} };
-      const resolve = (ref, dist) => {
+      // a slot is "real" when reality has filled it: a confirmed fixture team,
+      // or the winner/loser advanced from a finished feeder match
+      const realHome = koFixTeam(id, 'home') || realSlotTeam(spec.home);
+      const realAway = koFixTeam(id, 'away') || realSlotTeam(spec.away);
+      const resolve = (ref, dist, fixed) => {
+        if (fixed) return fixed;
         const [kind, key] = ref.split(':');
         if (kind === 'M') return winnerOf[key] || null;   // winner advances
         if (kind === 'L') return loserOf[key] || null;     // loser → bronze
         return topId(dist);                                // group-origin slot
       };
-      const home = resolve(spec.home, s.home);
-      const away = resolve(spec.away, s.away);
-      const reach = (tid, dist) => tid ? (dist[tid] || 0) / p.n : 0;
+      const home = resolve(spec.home, s.home, realHome);
+      const away = resolve(spec.away, s.away, realAway);
+      const reach = (tid, dist, isReal) => isReal ? 1 : (tid ? (dist[tid] || 0) / p.n : 0);
       let winner = home || away, loser = null, pHome = 0.5;
       if (home && away) {
-        pHome = koWinProb(team(home).elo, team(away).elo);
-        winner = pHome >= 0.5 ? home : away;
-        loser = winner === home ? away : home;
+        const real = state.known && state.known.ko && state.known.ko[id];
+        if (real && real.winner && (real.winner === home || real.winner === away)) {
+          winner = real.winner; loser = winner === home ? away : home;
+          pHome = winner === home ? 1 : 0; // actual result
+        } else {
+          pHome = koWinProb(team(home).elo, team(away).elo);
+          winner = pHome >= 0.5 ? home : away;
+          loser = winner === home ? away : home;
+        }
       }
       winnerOf[id] = winner; loserOf[id] = loser;
-      occ[id] = { home, away, winner, loser, pHome, homeReach: reach(home, s.home), awayReach: reach(away, s.away) };
+      occ[id] = {
+        home, away, winner, loser, pHome,
+        homeReal: !!realHome, awayReal: !!realAway,
+        homeReach: reach(home, s.home, !!realHome), awayReach: reach(away, s.away, !!realAway),
+      };
     }
   }
   return { occ, n: p.n };
 }
 // per-match accessor over the cached chalk bracket
 function chalkMatch(id) { return state.chalk ? state.chalk.occ[id] : null; }
+
+// the FIFA-confirmed team assigned to a knockout slot (from the live feed)
+function koFixTeam(id, side) {
+  const f = state.koFixtures && state.koFixtures[id];
+  return f ? (side === 'home' ? f.home : f.away) : null;
+}
+// the team that has really filled a slot via a played knockout result: the
+// winner of a finished feeder match (M:n), or its loser for the bronze (L:n).
+// This advances actual results round-by-round even before the next tie's
+// other side is known.
+function realSlotTeam(ref) {
+  if (!state.known || !state.known.ko) return null;
+  const [kind, key] = ref.split(':');
+  const r = state.known.ko[key];
+  if (!r || !r.winner) return null;
+  if (kind === 'M') return r.winner;
+  if (kind === 'L') return r.winner === r.home ? r.away : r.home;
+  return null;
+}
 
 // opts: { groupsDone, revealed:Set, live:matchId, interactive:bool, mode }
 // mode 'matchday' (default) fills slots from `sim` with scores; mode
@@ -908,9 +942,9 @@ function renderBracket(sim, opts = {}) {
     if (sim && m && refKnown(ref)) {
       const tid = side === 'home' ? m.home : m.away;
       const t = team(tid);
-      // gold if FIFA has confirmed this exact matchup (and the sim agrees) or
-      // the group position is clinched
-      if (feedTeam(id, side) === tid || confirmedSlot(id, ref)) cls += ' confirmed';
+      // gold if this slot is real: a confirmed FIFA fixture, a winner advanced
+      // from a played knockout tie, or a clinched group position (sim agrees)
+      if (feedTeam(id, side) === tid || realSlotTeam(ref) === tid || confirmedSlot(id, ref)) cls += ' confirmed';
       name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       if (revealed.has(m.match)) {
         const g = side === 'home' ? m.hg : m.ag;
@@ -923,7 +957,7 @@ function renderBracket(sim, opts = {}) {
       // no simulated placement yet — show any team locked into this slot by
       // real results (a confirmed FIFA fixture, or a clinched group position),
       // so secured fixtures appear on a fresh sheet without a simulation
-      const lockTid = feedTeam(id, side) || lockedSlotTeam(id, ref);
+      const lockTid = feedTeam(id, side) || realSlotTeam(ref) || lockedSlotTeam(id, ref);
       if (lockTid) {
         const t = team(lockTid);
         cls += ' confirmed';
@@ -938,18 +972,15 @@ function renderBracket(sim, opts = {}) {
   // gold, at 100% (it has actually reached this slot).
   function slotHtmlPredict(ref, id, side) {
     const cm = chalkMatch(id);
-    const ft = feedTeam(id, side);
-    const tid = ft || (cm && cm[side]);
+    const tid = cm && cm[side];
     if (!tid) {
       return `<div class="match-slot pre"><span class="slot-origin">${shortSeed(ref)}</span><span class="slot-name muted">—</span></div>`;
     }
     const t = team(tid);
-    const isConf = !!ft || !!confirmedSlot(id, ref);
-    const reach = ft ? 1 : (side === 'home' ? cm.homeReach : cm.awayReach);
-    const fx = state.koFixtures && state.koFixtures[id];
-    const won = ft
-      ? (fx && fx.winner ? fx.winner === tid : (cm && cm.winner === tid))
-      : (cm && cm.winner === tid);
+    const real = side === 'home' ? cm.homeReal : cm.awayReal; // confirmed / advanced
+    const reach = side === 'home' ? cm.homeReach : cm.awayReach; // 1 when real
+    const isConf = real || !!confirmedSlot(id, ref);
+    const won = cm.winner === tid;
     return `<div class="match-slot predict ${won ? 'winner' : ''}${isConf ? ' confirmed' : ''}">
       <span class="slot-origin">${shortSeed(ref, tid)}</span>
       <span class="flag">${t.flag}</span>
