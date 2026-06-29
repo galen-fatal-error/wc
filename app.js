@@ -41,6 +41,7 @@ const state = {
   lockWinnerGroup: null,// { group -> teamId } locked into the 1x R32 slot
   lockRunnerGroup: null,// { group -> teamId } locked into the 2x R32 slot
   matchDates: { group: {}, ko: Object.assign({}, MATCH_DATES_KO) }, // fixture dates
+  matchVenues: { group: {}, ko: Object.assign({}, MATCH_VENUES_KO) }, // fixture venues
   koFixtures: {},       // FIFA-confirmed knockout matchups from the live feed
   thirdsView: 'projected', // best-thirds list: 'projected' (%) | 'current' (standings)
 };
@@ -173,10 +174,13 @@ function fmtMatchDate(iso) {
 }
 const koDate = matchId => (state.matchDates && state.matchDates.ko[matchId]) || null;
 const groupDate = (a, b) => (state.matchDates && state.matchDates.group[pairKey(a, b)]) || null;
-// tooltip date line (or a gentle placeholder)
-function dateRow(iso) {
+const koVenue = matchId => (state.matchVenues && state.matchVenues.ko[matchId]) || null;
+const groupVenue = (a, b) => (state.matchVenues && state.matchVenues.group[pairKey(a, b)]) || null;
+// tooltip date (+ venue) line
+function dateRow(iso, venue) {
   const f = fmtMatchDate(iso);
-  return `<span class="tip-row tip-date">📅 ${f || 'Date TBD'}</span>`;
+  const loc = venue ? ` <span class="tip-venue">· 📍 ${venue}</span>` : '';
+  return `<span class="tip-row tip-date">📅 ${f || 'Date TBD'}${loc}</span>`;
 }
 
 // ---------- group stage ----------
@@ -478,7 +482,7 @@ function groupGameTip(aId, bId) {
   const A = team(aId), B = team(bId), g = groupOf(aId);
   const [w, d, l] = h2hOdds(aId, bId); // win / draw / loss for A (host-adjusted)
   let html = `<span class="tip-head">${A.flag} ${A.name} v ${B.name} ${B.flag} · GROUP ${g}</span>`;
-  html += dateRow(groupDate(aId, bId));
+  html += dateRow(groupDate(aId, bId), groupVenue(aId, bId));
   html += `<div class="tip-odds-bar"><span class="home-share" style="width:${w * 100}%"></span><span class="draw-share" style="width:${d * 100}%"></span><span class="away-share" style="flex:1"></span></div>
     <span class="tip-row tip-mono">${A.code} <span class="tip-strong">${pct(w)}</span> · draw ${pct(d)} · <span class="tip-strong">${pct(l)}</span> ${B.code}
       <span style="color:#4d4d4d">— pre-match</span></span>`;
@@ -990,14 +994,41 @@ function renderBracket(sim, opts = {}) {
     </div>`;
   }
 
+  // win / draw / win odds bar shown inline on every knockout box, computed
+  // from the two teams currently in it (real where confirmed, projected
+  // otherwise) — so the percentages show without entering predictive mode.
+  function oddsLine(h, a) {
+    if (!h || !a) return '';
+    const [la, lb] = goalLambdas(team(h).elo, team(a).elo);
+    const [w, d, l] = outcomeProbs(la, lb);
+    return `<div class="match-odds">
+      <span class="mo-bar"><i style="width:${(w * 100).toFixed(1)}%"></i><i class="mo-d" style="width:${(d * 100).toFixed(1)}%"></i><i class="mo-a" style="flex:1"></i></span>
+      <span class="mo-nums">${Math.round(w * 100)} · ${Math.round(d * 100)} · ${Math.round(l * 100)}</span>
+    </div>`;
+  }
+  // the two teams occupying a box, mode-aware (mirrors the slot renderers)
+  function boxTeams(id) {
+    const spec = SPEC_BY_ID[id];
+    if (mode === 'predict') { const cm = chalkMatch(id); return cm ? [cm.home, cm.away] : [null, null]; }
+    const m = matchById(sim, id);
+    if (sim && m && refKnown(spec.home) && refKnown(spec.away)) return [m.home, m.away];
+    return [
+      feedTeam(id, 'home') || realSlotTeam(spec.home) || lockedSlotTeam(id, spec.home),
+      feedTeam(id, 'away') || realSlotTeam(spec.away) || lockedSlotTeam(id, spec.away),
+    ];
+  }
+
   function matchBox(id, side) {
     const spec = SPEC_BY_ID[id];
     const r32 = ROUND_OF[id] === 'r32' ? 'r32' : '';
+    const [bh, ba] = boxTeams(id);
+    const odds = oddsLine(bh, ba);
     if (mode === 'predict') {
       return `<div class="match-box predict-box ${r32}" data-mid="${id}" data-side="${side}">
         <span class="match-no">M${id}</span>
         ${slotHtmlPredict(spec.home, id, 'home')}
         ${slotHtmlPredict(spec.away, id, 'away')}
+        ${odds}
       </div>`;
     }
     const m = matchById(sim, id);
@@ -1010,6 +1041,7 @@ function renderBracket(sim, opts = {}) {
       <span class="match-no">M${id}${m && m.et && played ? ' · AET' : ''}</span>
       ${slotHtml(spec.home, m, 'home', id)}
       ${slotHtml(spec.away, m, 'away', id)}
+      ${odds}
     </div>`;
   }
 
@@ -1142,7 +1174,7 @@ function drawBracketLines() {
 function bracketTipPredict(id) {
   const p = state.predict;
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]} · PROJECTED</span>`;
-  html += dateRow(koDate(id));
+  html += dateRow(koDate(id), koVenue(id));
   if (state.koFixtures && state.koFixtures[id]) {
     const f = state.koFixtures[id], fh = team(f.home), fa = team(f.away);
     html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Confirmed by FIFA</span> — ${fh.flag} ${fh.name} v ${fa.name} ${fa.flag}</span>`;
@@ -1189,7 +1221,7 @@ function bracketTip(id) {
   };
 
   let html = `<span class="tip-head">MATCH ${id} · ${ROUND_LABELS[ROUND_OF[id]]}</span>`;
-  html += dateRow(koDate(id));
+  html += dateRow(koDate(id), koVenue(id));
   if (state.koFixtures && state.koFixtures[id]) {
     const f = state.koFixtures[id], fh = team(f.home), fa = team(f.away);
     html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Confirmed by FIFA</span> — ${fh.flag} ${fh.name} v ${fa.name} ${fa.flag}</span>`;
@@ -1260,11 +1292,17 @@ async function syncLiveQuiet() {
     const folded = buildKnown(snap);
     state.known = folded.known;
     state.knownFolded = folded;
-    // merge feed dates over the hardcoded knockout dates
+    // merge feed dates/venues over the hardcoded knockout schedule
     if (folded.dates) {
       state.matchDates = {
         group: Object.assign({}, folded.dates.group),
         ko: Object.assign({}, MATCH_DATES_KO, folded.dates.ko),
+      };
+    }
+    if (folded.venues) {
+      state.matchVenues = {
+        group: Object.assign({}, folded.venues.group),
+        ko: Object.assign({}, MATCH_VENUES_KO, folded.venues.ko),
       };
     }
     state.koFixtures = folded.koFixtures || {};

@@ -170,4 +170,17 @@ const MATCH_DATES_KO = {
   '101': '2026-07-14', '102': '2026-07-15', '103': '2026-07-18', '104': '2026-07-19',
 };
 
+// Knockout host cities by match number (FIFA schedule). Live feed venues
+// override / fill these (matches 73 & 102 come from the feed).
+const MATCH_VENUES_KO = {
+  '74': 'Foxborough', '75': 'Guadalajara', '76': 'Houston', '77': 'East Rutherford',
+  '78': 'Arlington', '79': 'Mexico City', '80': 'Atlanta', '81': 'Santa Clara',
+  '82': 'Seattle', '83': 'Toronto', '84': 'Inglewood', '85': 'Vancouver',
+  '86': 'Miami Gardens', '87': 'Kansas City', '88': 'Arlington',
+  '89': 'Philadelphia', '90': 'Houston', '91': 'East Rutherford', '92': 'Mexico City',
+  '93': 'Arlington', '94': 'Seattle', '95': 'Atlanta', '96': 'Vancouver',
+  '97': 'Foxborough', '98': 'Inglewood', '99': 'Miami Gardens', '100': 'Kansas City',
+  '101': 'Arlington', '103': 'Miami Gardens', '104': 'East Rutherford',
+};
+
 const WC_DATA = { TEAMS, GROUPS, BRACKET };

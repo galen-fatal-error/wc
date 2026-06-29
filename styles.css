@@ -666,6 +666,33 @@ h3.subheading {
 .match-slot.pre .slot-name.muted { color: var(--color-graphite); }
 .match-box.r32 .match-slot.predict { min-height: 34px; }
 
+/* inline win/draw/win odds on each knockout box */
+.match-odds {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px 1px;
+}
+.match-odds .mo-bar {
+  flex: 1;
+  display: flex;
+  height: 3px;
+  min-width: 24px;
+  overflow: hidden;
+}
+.match-odds .mo-bar i { display: block; background: var(--color-peri); }
+.match-odds .mo-bar i.mo-d { background: var(--color-steel); }
+.match-odds .mo-bar i.mo-a { background: var(--color-graphite); }
+.match-odds .mo-nums {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.02em;
+  color: var(--color-steel);
+  flex-shrink: 0;
+}
+.match-box.r32 .match-odds { padding: 2px 4px 0; }
+.tooltip .tip-venue { color: var(--color-steel); }
+
 /* predictive tooltip distribution rows */
 .tip-pred-row {
   display: flex;
@@ -1356,6 +1383,7 @@ h3.subheading {
   .bracket .slot-origin,
   .bracket .pen-note { display: none; }
   .bracket .slot-bar { display: none; }
+  .bracket .match-odds { display: none; }
 
   .bracket-round { padding-top: 4px; }
   .bracket .match-box { margin: 2px 1px; }

@@ -19,13 +19,20 @@
 function buildKnown(snapshot) {
   const known = { groups: {}, groupsLive: {}, ko: {}, koLive: {} };
   const dates = { group: {}, ko: {} };
+  const venues = { group: {}, ko: {} };
   const koFixtures = {}; // FIFA-confirmed knockout matchups (both teams set), any status
   let finished = 0, live = 0, groupFinished = 0, koFinished = 0;
   for (const fx of snapshot) {
-    // capture the scheduled date for every fixture, regardless of status
-    if (fx.date) {
-      if (fx.stage === 'group') { if (fx.home && fx.away) dates.group[pairKey(fx.home, fx.away)] = fx.date; }
-      else if (fx.matchNo) dates.ko[fx.matchNo] = fx.date;
+    // capture the scheduled date + venue for every fixture, regardless of status
+    if (fx.stage === 'group') {
+      if (fx.home && fx.away) {
+        const pk = pairKey(fx.home, fx.away);
+        if (fx.date) dates.group[pk] = fx.date;
+        if (fx.venue) venues.group[pk] = fx.venue;
+      }
+    } else if (fx.matchNo) {
+      if (fx.date) dates.ko[fx.matchNo] = fx.date;
+      if (fx.venue) venues.ko[fx.matchNo] = fx.venue;
     }
     // a knockout fixture with both teams resolved is a confirmed matchup
     if (fx.stage !== 'group' && fx.matchNo && fx.home && fx.away) {
@@ -57,7 +64,7 @@ function buildKnown(snapshot) {
       }
     }
   }
-  return { known, dates, koFixtures, finished, live, groupFinished, koFinished };
+  return { known, dates, venues, koFixtures, finished, live, groupFinished, koFinished };
 }
 
 // ============================================================
@@ -134,7 +141,9 @@ function parseFifaMatch(m) {
   if (m.Winner) winner = m.Winner === (m.Home && m.Home.IdTeam) ? home : (m.Winner === (m.Away && m.Away.IdTeam) ? away : null);
   else if (status === 'FINISHED') winner = hg > ag ? home : (ag > hg ? away : (pens ? (pens.h > pens.a ? home : away) : null));
 
-  const item = { stage, home, away, status, minute: parseMinute(m.MatchTime), hg, ag, events: [], date: String(m.Date || m.LocalDate || '').slice(0, 10) };
+  const venue = (m.Stadium && ((m.Stadium.CityName && m.Stadium.CityName[0] && m.Stadium.CityName[0].Description) ||
+    (m.Stadium.Name && m.Stadium.Name[0] && m.Stadium.Name[0].Description))) || '';
+  const item = { stage, home, away, status, minute: parseMinute(m.MatchTime), hg, ag, events: [], date: String(m.Date || m.LocalDate || '').slice(0, 10), venue };
   if (stage === 'group') {
     item.groupKey = groupOfId(home);
     item.id = 'g:' + item.groupKey + ':' + home + ':' + away;
@@ -160,7 +169,7 @@ function parseWc26Game(g) {
   const hg = parseInt(g.home_score, 10) || 0;
   const ag = parseInt(g.away_score, 10) || 0;
 
-  const item = { stage, home, away, status, minute: parseMinute(te), hg, ag, events: [], date: String(g.local_date || g.date || g.datetime || g.match_date || '').slice(0, 10) };
+  const item = { stage, home, away, status, minute: parseMinute(te), hg, ag, events: [], date: String(g.local_date || g.date || g.datetime || g.match_date || '').slice(0, 10), venue: String(g.stadium || g.city || g.venue || g.location || '') };
   if (stage === 'group') {
     item.groupKey = groupOfId(home);
     item.id = 'g:' + item.groupKey + ':' + home + ':' + away;
