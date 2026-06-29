@@ -882,6 +882,16 @@ function realSlotTeam(ref) {
   if (kind === 'L') return r.winner === r.home ? r.away : r.home;
   return null;
 }
+// the team locked into a knockout slot by reality: a confirmed FIFA fixture,
+// an advanced winner, or a clinched group winner / runner-up.
+function lockedKoTeam(id, ref, side) {
+  return koFixTeam(id, side) || realSlotTeam(ref) || (() => {
+    const [kind, g] = ref.split(':');
+    if (kind === 'W' && state.lockWinnerGroup) return state.lockWinnerGroup[g] || null;
+    if (kind === 'RU' && state.lockRunnerGroup) return state.lockRunnerGroup[g] || null;
+    return null;
+  })();
+}
 
 // opts: { groupsDone, revealed:Set, live:matchId, interactive:bool, mode }
 // mode 'matchday' (default) fills slots from `sim` with scores; mode
@@ -903,10 +913,7 @@ function renderBracket(sim, opts = {}) {
   }
   syncKoModeButtons();
   ensureConfirmed();
-  // build the projection for BOTH modes: predictive shows reach %, matchday
-  // uses it to fill (dimmed) + odds the not-yet-played rounds
-  ensurePredictData();
-  state.chalk = buildChalk();
+  if (mode === 'predict') { ensurePredictData(); state.chalk = buildChalk(); }
   // An R32 slot is gold only when its exact POSITION is locked by real
   // results: the 1x slot once a group winner is clinched, the 2x slot once a
   // runner-up is clinched. Advancement alone (team is top-2 but order still
@@ -961,18 +968,14 @@ function renderBracket(sim, opts = {}) {
         if (m.pens) pen = `<span class="pen-note">${side === 'home' ? m.pens.h : m.pens.a}p</span>`;
       }
     } else {
-      // no simulated placement yet. Show any team locked in by real results
-      // (a confirmed FIFA fixture or a clinched group position) in gold; else
-      // fall back to the projected most-likely team (dimmed) so the whole
-      // ladder is populated with odds without running a simulation.
+      // no simulated placement yet — show only teams locked in by real results
+      // (a confirmed FIFA fixture, an advanced winner, or a clinched group
+      // position) in gold; future slots stay empty until they resolve.
       const lockTid = feedTeam(id, side) || realSlotTeam(ref) || lockedSlotTeam(id, ref);
-      const cm = chalkMatch(id);
-      const projTid = cm && cm[side];
-      const tid = lockTid || projTid;
-      if (tid) {
-        const t = team(tid);
-        cls += lockTid ? ' confirmed' : ' proj';
-        name = `<span class="slot-origin">${shortSeed(ref, tid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
+      if (lockTid) {
+        const t = team(lockTid);
+        cls += ' confirmed';
+        name = `<span class="slot-origin">${shortSeed(ref, lockTid)}</span><span class="flag">${t.flag}</span><span class="slot-name">${t.name}</span>`;
       }
     }
     return `<div class="match-slot ${cls}">${name}${pen}${score}</div>`;
@@ -1019,10 +1022,10 @@ function renderBracket(sim, opts = {}) {
     if (mode === 'predict') { const cm = chalkMatch(id); return cm ? [cm.home, cm.away] : [null, null]; }
     const m = matchById(sim, id);
     if (sim && m && refKnown(spec.home) && refKnown(spec.away)) return [m.home, m.away];
-    const cm = chalkMatch(id);
+    // only real/confirmed teams get inline odds in matchday (no projections)
     return [
-      feedTeam(id, 'home') || realSlotTeam(spec.home) || lockedSlotTeam(id, spec.home) || (cm && cm.home),
-      feedTeam(id, 'away') || realSlotTeam(spec.away) || lockedSlotTeam(id, spec.away) || (cm && cm.away),
+      feedTeam(id, 'home') || realSlotTeam(spec.home) || lockedSlotTeam(id, spec.home),
+      feedTeam(id, 'away') || realSlotTeam(spec.away) || lockedSlotTeam(id, spec.away),
     ];
   }
 
@@ -1235,18 +1238,27 @@ function bracketTip(id) {
     html += `<span class="tip-row tip-confirmed">✓ <span class="tip-strong">Confirmed by FIFA</span> — ${fh.flag} ${fh.name} v ${fa.name} ${fa.flag}</span>`;
   }
 
-  if (!sim || !m || !refKnown(spec.home) || !refKnown(spec.away)) {
+  // resolve the matchup: from the running simulation, else from real /
+  // confirmed results — so confirmed games show odds on rollover without a sim
+  let hId, aId, mObj = null, played = false;
+  if (sim && m && refKnown(spec.home) && refKnown(spec.away)) {
+    hId = m.home; aId = m.away; mObj = m; played = revealed.has(id);
+  } else {
+    hId = lockedKoTeam(id, spec.home, 'home');
+    aId = lockedKoTeam(id, spec.away, 'away');
+  }
+
+  if (!hId || !aId) {
     html += `<span class="tip-row"><span class="tip-strong">${originLabel(spec.home)}</span> v
       <span class="tip-strong">${originLabel(spec.away)}</span> — slots fill as earlier rounds resolve.</span>`;
     if (NEXT_MATCH[id]) html += `<span class="tip-rule">Winner advances to Match ${NEXT_MATCH[id].match}.</span>`;
     return html;
   }
 
-  const h = team(m.home), a = team(m.away);
+  const h = team(hId), a = team(aId);
   const pH = koWinProb(h.elo, a.elo);
   const [la, lb] = goalLambdas(h.elo, a.elo);
   const [w90, d90, l90] = outcomeProbs(la, lb);
-  const played = revealed.has(id);
 
   html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
     <span class="tip-strong">${a.name} ${a.flag}</span></span>
@@ -1255,22 +1267,22 @@ function bracketTip(id) {
       <span style="color:#4d4d4d">— pre-match (90′)</span></span>
     <span class="tip-row tip-mono" style="color:var(--color-steel)">${h.code} <span class="tip-strong">${pct(pH)}</span> · ${pct(1 - pH)} ${a.code} to advance (incl. ET / pens)</span>`;
 
-  if (played) {
-    html += `<span class="tip-rule">FULL TIME: <span class="tip-strong">${h.code} ${m.hg}–${m.ag} ${a.code}</span>${m.et ? ' after extra time' : ''}.</span>`;
-    for (const c of m.cards || []) {
+  if (mObj && played) {
+    html += `<span class="tip-rule">FULL TIME: <span class="tip-strong">${h.code} ${mObj.hg}–${mObj.ag} ${a.code}</span>${mObj.et ? ' after extra time' : ''}.</span>`;
+    for (const c of mObj.cards || []) {
       const ct = team(c.team);
       html += `<span class="tip-row">🟥 ${c.minute}′ — ${ct.name} down to ten men.</span>`;
     }
-    if (m.pens) {
+    if (mObj.pens) {
       const seq = s => s.map(k => (k ? '●' : '○')).join('');
-      html += `<span class="tip-row">Shoot-out <span class="tip-strong">${m.pens.h}–${m.pens.a}</span>:
-        <span class="tip-mono">${h.code} ${seq(m.pens.seqH)} · ${a.code} ${seq(m.pens.seqA)}</span></span>`;
+      html += `<span class="tip-row">Shoot-out <span class="tip-strong">${mObj.pens.h}–${mObj.pens.a}</span>:
+        <span class="tip-mono">${h.code} ${seq(mObj.pens.seqH)} · ${a.code} ${seq(mObj.pens.seqA)}</span></span>`;
     }
-    const w = team(m.winner), l = team(m.loser);
+    const w = team(mObj.winner), l = team(mObj.loser);
     if (l.elo - w.elo >= 80) {
-      html += `<span class="tip-row" style="color:var(--color-peri)">UPSET — ${w.name} beat the odds (${pct(m.winner === m.home ? pH : 1 - pH)} pre-match).</span>`;
+      html += `<span class="tip-row" style="color:var(--color-peri)">UPSET — ${w.name} beat the odds (${pct(mObj.winner === mObj.home ? pH : 1 - pH)} pre-match).</span>`;
     }
-  } else if (interactive) {
+  } else if (mObj && interactive) {
     html += `<span class="tip-action">▸ CLICK TO PLAY THIS FIXTURE</span>`;
   }
   if (NEXT_MATCH[id] && !played) {
@@ -1405,7 +1417,7 @@ function setKoMode(mode) {
     else renderBracket(null, { mode: 'matchday' });
     setKoStatus(state.sim || (state.matchday && state.matchday.sim)
       ? '⚽ MATCHDAY · one simulated tournament, with scores.'
-      : '⚽ MATCHDAY · real results in gold, projected matchups dimmed · run Matchday or Run Once to play it out.');
+      : '⚽ MATCHDAY · real results in gold · run Matchday or Run Once to play it out.');
   }
 }
 
@@ -1522,7 +1534,7 @@ function resetAll() {
   renderFlow(null);
   renderBracket(null);
   renderMC();
-  setKoStatus('⚽ MATCHDAY · real results in gold, projected matchups dimmed · run Matchday or Run Once to play it out.');
+  setKoStatus('⚽ MATCHDAY · real results in gold · run Matchday or Run Once to play it out.');
   setNote(state.known && knownCount() ? `SHEET CLEAR · ${knownCount()} REAL RESULT${knownCount() === 1 ? '' : 'S'} STILL ON` : 'SHEET CLEAR · KICK-OFF JUN 11 · ESTADIO AZTECA');
 }
 
