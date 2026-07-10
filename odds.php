@@ -17,11 +17,17 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Cache-Control: no-store');
 
+// Key resolution (never committed to git): env var first, then an untracked
+// sibling odds.key.php that simply `return`s the key string.
 $KEY = getenv('ODDS_API_KEY');
 if ($KEY === false || $KEY === '') {
-  $KEY = ''; // <-- paste your the-odds-api.com API key here
+  $keyFile = dirname(__FILE__) . '/odds.key.php';
+  if (is_file($keyFile)) {
+    $k = include $keyFile;
+    if (is_string($k)) { $KEY = $k; }
+  }
 }
-if ($KEY === '') {
+if ($KEY === false || $KEY === '') {
   echo json_encode(array('error' => 'no key'));
   exit;
 }
