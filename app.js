@@ -50,6 +50,7 @@ const state = {
   marketMsg: '',        // status string for the market feed
   marketWinner: null,   // teamId -> de-vigged outright champion probability
   marketWinnerOk: false,// whether the outright winner market loaded
+  winnerMsg: '',        // status string for the outright winner market
 };
 
 const team = id => TEAMS[id];
@@ -175,6 +176,63 @@ function championProb(teamId, modelFrac) {
   if (mk == null) return modelFrac;
   if (src === 'market') return mk;
   return modelFrac * (1 - BLEND_MARKET_WEIGHT) + mk * BLEND_MARKET_WEIGHT;
+}
+
+// ---------- title-odds board (who wins the World Cup) ----------
+// Ranks every still-alive team by championship probability under the current
+// source, always carrying both the model and market numbers for comparison.
+// Model = slot-occupancy projection champion frequency (conditioned on real
+// results); Market = de-vigged outright winner futures.
+function championBoardData() {
+  ensurePredictData();
+  const p = state.predict;
+  const win = (p && p.slots['104'] && p.slots['104'].win) || {};
+  const n = (p && p.n) || 1;
+  const rows = [];
+  for (const id in TEAMS) {
+    const modelFrac = (win[id] || 0) / n;
+    const marketFrac = (state.marketWinner && state.marketWinner[id] != null) ? state.marketWinner[id] : null;
+    if (modelFrac <= 0 && marketFrac == null) continue; // eliminated / cannot win
+    rows.push({ id, modelFrac, marketFrac, srcFrac: championProb(id, modelFrac) });
+  }
+  rows.sort((a, b) => b.srcFrac - a.srcFrac || b.modelFrac - a.modelFrac);
+  return rows.slice(0, 12);
+}
+
+function renderChampionBoard() {
+  const el = $('#champBoard');
+  if (!el) return;
+  const rows = championBoardData();
+  if (!rows.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  const src = state.oddsSource || 'elo';
+  const srcLabel = src === 'elo' ? 'MODEL (ELO)' : (src === 'market' ? 'MARKET' : 'BLEND · 50/50');
+  const max = rows[0].srcFrac || 1;
+  const pctTxt = f => (100 * f).toFixed(1);
+  const body = rows.map((r, i) => {
+    const t = team(r.id);
+    const w = Math.max(2, 100 * r.srcFrac / max);
+    const mdl = Math.round(100 * r.modelFrac);
+    const mkt = r.marketFrac == null ? '—' : Math.round(100 * r.marketFrac);
+    return `<div class="cb-row${i === 0 ? ' cb-lead' : ''}" data-mid="">
+      <span class="cb-rank">${String(i + 1).padStart(2, '0')}</span>
+      <span class="cb-flag">${t.flag}</span>
+      <span class="cb-name">${t.name}</span>
+      <span class="cb-track"><span class="cb-fill" style="width:${w}%"></span></span>
+      <span class="cb-pct">${pctTxt(r.srcFrac)}<i>%</i></span>
+      <span class="cb-cmp"><b>mdl</b> ${mdl} · <b class="cb-cmp-mkt">mkt</b> ${mkt}</span>
+    </div>`;
+  }).join('');
+  const mktState = state.marketWinnerOk
+    ? `<span class="cb-live">● live outright market</span>`
+    : `<span class="cb-warn">○ market ${state.winnerMsg || 'unavailable'} — model only</span>`;
+  el.innerHTML = `
+    <div class="champ-board-head">
+      <span class="cb-title">🏆 TITLE ODDS · TO WIN THE WORLD CUP</span>
+      <span class="cb-meta">showing <b>${srcLabel}</b> · ${mktState}</span>
+    </div>
+    <div class="cb-rows">${body}</div>
+    <div class="cb-foot">Bars scale to the leader. <b>mdl</b> = ${(p => p ? p.n.toLocaleString() : '')(state.predict)}-sim projection from live results · <b>mkt</b> = de-vigged bookmaker outright odds.</div>`;
 }
 
 // tiny tooltip footer noting which rating source produced the shown odds
@@ -1278,6 +1336,8 @@ function renderBracket(sim, opts = {}) {
     stackRound(ROUND_IDS.final, 'THE FINAL', 'final', 'JUL 19 · NY/NJ') +
     champPlate +
     stackRound(ROUND_IDS.third, 'BRONZE FINAL', 'third', 'M103');
+
+  renderChampionBoard(); // keep the title-odds board in sync with the sheet
 }
 
 // SVG connector tree: link each fixture to the two it feeds from. Drawn
@@ -1491,45 +1551,55 @@ function setRealNote(html) {
 // feed needs a server-side API key; until one is present odds.php returns
 // {"error":"no key"} and we quietly stay on the Elo model. Returns true when
 // usable market lines were loaded.
-let marketFetching = false;
-async function syncMarketOdds() {
-  if (marketFetching) return state.marketOk;
-  marketFetching = true;
+// outright winner futures only — cheap, always pulled so the title-odds board
+// can show the market even in Elo mode (as a comparison)
+async function syncWinnerOdds() {
   try {
-    // match 1X2 and outright winner futures pull in parallel (separate feeds,
-    // separately cached server-side)
-    const [snap, wsnap] = await Promise.all([
-      makeOddsFeed(WC_DATA).snapshot().catch(e => ({ ok: false, reason: 'error' })),
-      makeWinnerFeed(WC_DATA).snapshot().catch(e => ({ ok: false, reason: 'error' })),
-    ]);
+    const wsnap = await makeWinnerFeed(WC_DATA).snapshot();
+    if (wsnap && wsnap.ok) {
+      state.marketWinner = wsnap.market;
+      state.marketWinnerOk = true;
+      state.winnerMsg = `${wsnap.teams}-team winner market`;
+      return true;
+    }
+    state.marketWinner = null;
+    state.marketWinnerOk = false;
+    state.winnerMsg = (wsnap && wsnap.reason === 'no key') ? 'no odds API key' : ((wsnap && wsnap.reason) || 'unavailable');
+  } catch (e) {
+    state.marketWinner = null; state.marketWinnerOk = false; state.winnerMsg = 'unreachable';
+  }
+  return false;
+}
+
+// per-match 1X2 odds only
+async function syncMatchOdds() {
+  try {
+    const snap = await makeOddsFeed(WC_DATA).snapshot();
     if (snap && snap.ok) {
       state.marketOdds = snap.market;
       state.marketOk = true;
       state.marketMsg = `${snap.matched} match line${snap.matched === 1 ? '' : 's'} loaded`;
-    } else {
-      state.marketOdds = null;
-      state.marketOk = false;
-      state.marketMsg = (snap && snap.reason === 'no key')
-        ? 'no odds API key set — using Elo fallback'
-        : `market feed unavailable (${(snap && snap.reason) || 'error'}) — using Elo fallback`;
+      return true;
     }
-    if (wsnap && wsnap.ok) {
-      state.marketWinner = wsnap.market;
-      state.marketWinnerOk = true;
-      state.marketMsg += ` · ${wsnap.teams}-team winner market`;
-    } else {
-      state.marketWinner = null;
-      state.marketWinnerOk = false;
-    }
-  } catch (e) {
     state.marketOdds = null;
     state.marketOk = false;
-    state.marketWinner = null;
-    state.marketWinnerOk = false;
+    state.marketMsg = (snap && snap.reason === 'no key')
+      ? 'no odds API key set — using Elo fallback'
+      : `match market unavailable (${(snap && snap.reason) || 'error'}) — using Elo fallback`;
+  } catch (e) {
+    state.marketOdds = null; state.marketOk = false;
     state.marketMsg = 'market feed unreachable — using Elo fallback';
-  } finally {
-    marketFetching = false;
   }
+  return false;
+}
+
+// both markets (used when a market-backed source is active)
+let marketFetching = false;
+async function syncMarketOdds() {
+  if (marketFetching) return state.marketOk;
+  marketFetching = true;
+  try { await Promise.all([syncMatchOdds(), syncWinnerOdds()]); }
+  finally { marketFetching = false; }
   return state.marketOk;
 }
 
@@ -1541,8 +1611,8 @@ async function refreshRealData(announce) {
   setRealNote('<span class="real-syncing">● syncing real results…</span>');
   const folded = await syncLiveQuiet();
   state.predict = null; // force predictive to re-project on next open
-  // refresh market odds too when a market-backed source is active
-  if (state.oddsSource !== 'elo') await syncMarketOdds();
+  await syncWinnerOdds(); // always: powers the title-odds board even in Elo mode
+  if (state.oddsSource !== 'elo') await syncMatchOdds();
   if (btn) { btn.disabled = false; btn.textContent = '↻ REAL DATA'; }
 
   if (!folded) {

@@ -608,6 +608,61 @@ h3.subheading {
 .odds-src-note .oddn-warn { color: var(--color-clinch); }
 /* inline odds bar carries a faint green underline when a market line backs it */
 .match-odds.has-market { box-shadow: inset 0 -2px 0 -1px var(--color-real); }
+/* ---------- title-odds board (who wins the cup) ---------- */
+.champ-board {
+  margin: 14px 0 18px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 10px;
+  padding: 12px 14px 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.champ-board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 10px;
+}
+.cb-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--color-ash);
+  font-weight: 700;
+}
+.cb-meta { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.03em; color: var(--color-steel); }
+.cb-meta b { color: var(--color-real); }
+.cb-live { color: var(--color-real); }
+.cb-warn { color: var(--color-clinch); }
+.cb-rows { display: flex; flex-direction: column; gap: 3px; }
+.cb-row {
+  display: grid;
+  grid-template-columns: 22px 22px minmax(74px, 1fr) minmax(80px, 3fr) 52px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.cb-rank { font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+.cb-flag { font-size: 15px; }
+.cb-name { font-size: 12px; color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cb-lead .cb-name { font-weight: 700; }
+.cb-track { height: 8px; background: var(--color-graphite); border-radius: 4px; overflow: hidden; }
+.cb-fill { display: block; height: 100%; background: var(--color-steel); border-radius: 4px; }
+.cb-lead .cb-fill { background: var(--color-real); }
+.cb-pct { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--color-paper); text-align: right; }
+.cb-pct i { font-style: normal; font-size: 9px; color: var(--color-steel); font-weight: 500; }
+.cb-cmp { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.02em; color: var(--color-steel); white-space: nowrap; }
+.cb-cmp b { color: var(--color-ash); font-weight: 500; }
+.cb-cmp .cb-cmp-mkt { color: var(--color-real); }
+.cb-foot { margin-top: 9px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.02em; color: var(--color-steel); }
+.cb-foot b { color: var(--color-ash); font-weight: 500; }
+@media (max-width: 620px) {
+  .cb-row { grid-template-columns: 20px 20px 1fr auto; }
+  .cb-track { display: none; }
+  .cb-cmp { grid-column: 3 / 5; text-align: right; }
+}
+
 /* champion column cell backed by the live outright winner market */
 .prob-cell.champ-market { box-shadow: inset 0 0 0 1px rgba(79, 180, 119, 0.55); }
 .prob-cell.champ-market .prob-bar { background: var(--color-real); }
