@@ -274,3 +274,46 @@ function makeOddsFeed(data, proxyUrl) {
     },
   };
 }
+
+// ---------- outright tournament-winner futures (odds.php?market=winner) ----------
+// Returns a de-vigged champion probability per team: median price across books
+// -> implied prob (1/price) -> normalized so the field sums to 1.
+function makeWinnerFeed(data, proxyUrl) {
+  const url = (proxyUrl || ODDS_PROXY_URL) + '?market=winner';
+  return {
+    kind: 'winner',
+    url,
+    async snapshot() {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!res.ok) return { ok: false, reason: 'proxy ' + res.status };
+      const payload = await res.json();
+      if (payload && payload.error) return { ok: false, reason: String(payload.error) };
+      const events = Array.isArray(payload) ? payload : (payload.data || []);
+      if (!Array.isArray(events) || !events.length) return { ok: false, reason: 'no events' };
+      const prices = {}; // teamName -> [price across books]
+      for (const ev of events) {
+        for (const bk of ev.bookmakers || []) {
+          const mk = (bk.markets || []).find(m => m.key === 'outrights');
+          if (!mk) continue;
+          for (const o of mk.outcomes || []) {
+            (prices[o.name] = prices[o.name] || []).push(o.price);
+          }
+        }
+      }
+      const imp = {}; // teamId -> implied (pre-normalization)
+      let tot = 0;
+      for (const nm in prices) {
+        const id = nameToId(nm);
+        if (!id) continue;
+        const mp = median(prices[nm]);
+        if (!(mp > 0)) continue;
+        imp[id] = 1 / mp;
+        tot += imp[id];
+      }
+      if (!(tot > 0)) return { ok: false, reason: 'no priced teams' };
+      const market = {};
+      for (const id in imp) market[id] = imp[id] / tot;
+      return { ok: true, market, teams: Object.keys(market).length };
+    },
+  };
+}

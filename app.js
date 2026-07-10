@@ -48,6 +48,8 @@ const state = {
   marketOdds: null,     // pairKey -> {a,b,pa,pd,pb} de-vigged 1X2 from the odds feed
   marketOk: false,      // whether the last odds pull returned usable market lines
   marketMsg: '',        // status string for the market feed
+  marketWinner: null,   // teamId -> de-vigged outright champion probability
+  marketWinnerOk: false,// whether the outright winner market loaded
 };
 
 const team = id => TEAMS[id];
@@ -160,6 +162,19 @@ function matchProbs(homeId, awayId) {
   let w = mix(elo.w, market.w), d = mix(elo.d, market.d), l = mix(elo.l, market.l);
   const s = w + d + l || 1;
   return { w: w / s, d: d / s, l: l / s, adv: mix(elo.adv, market.adv) };
+}
+
+// source-aware tournament-winner probability. `modelFrac` is the caller's
+// Monte-Carlo champion frequency (0–1); MARKET replaces it with the de-vigged
+// outright price, BLEND mixes them, both falling back to the model where no
+// outright line exists (e.g. eliminated teams).
+function championProb(teamId, modelFrac) {
+  const src = state.oddsSource || 'elo';
+  if (src === 'elo') return modelFrac;
+  const mk = state.marketWinner && state.marketWinner[teamId];
+  if (mk == null) return modelFrac;
+  if (src === 'market') return mk;
+  return modelFrac * (1 - BLEND_MARKET_WEIGHT) + mk * BLEND_MARKET_WEIGHT;
 }
 
 // tiny tooltip footer noting which rating source produced the shown odds
@@ -1200,7 +1215,8 @@ function renderBracket(sim, opts = {}) {
     if (cm && cm.winner) {
       champ = team(cm.winner);
       const p = state.predict;
-      champPct = p ? pct((p.slots['104'].win[cm.winner] || 0) / p.n) : '';
+      const modelFrac = p ? (p.slots['104'].win[cm.winner] || 0) / p.n : 0;
+      champPct = p ? pct(championProb(cm.winner, modelFrac)) : '';
     }
   } else {
     const finalM = matchById(sim, '104');
@@ -1480,12 +1496,16 @@ async function syncMarketOdds() {
   if (marketFetching) return state.marketOk;
   marketFetching = true;
   try {
-    const feed = makeOddsFeed(WC_DATA);
-    const snap = await feed.snapshot();
+    // match 1X2 and outright winner futures pull in parallel (separate feeds,
+    // separately cached server-side)
+    const [snap, wsnap] = await Promise.all([
+      makeOddsFeed(WC_DATA).snapshot().catch(e => ({ ok: false, reason: 'error' })),
+      makeWinnerFeed(WC_DATA).snapshot().catch(e => ({ ok: false, reason: 'error' })),
+    ]);
     if (snap && snap.ok) {
       state.marketOdds = snap.market;
       state.marketOk = true;
-      state.marketMsg = `${snap.matched} market line${snap.matched === 1 ? '' : 's'} loaded`;
+      state.marketMsg = `${snap.matched} match line${snap.matched === 1 ? '' : 's'} loaded`;
     } else {
       state.marketOdds = null;
       state.marketOk = false;
@@ -1493,9 +1513,19 @@ async function syncMarketOdds() {
         ? 'no odds API key set — using Elo fallback'
         : `market feed unavailable (${(snap && snap.reason) || 'error'}) — using Elo fallback`;
     }
+    if (wsnap && wsnap.ok) {
+      state.marketWinner = wsnap.market;
+      state.marketWinnerOk = true;
+      state.marketMsg += ` · ${wsnap.teams}-team winner market`;
+    } else {
+      state.marketWinner = null;
+      state.marketWinnerOk = false;
+    }
   } catch (e) {
     state.marketOdds = null;
     state.marketOk = false;
+    state.marketWinner = null;
+    state.marketWinnerOk = false;
     state.marketMsg = 'market feed unreachable — using Elo fallback';
   } finally {
     marketFetching = false;
@@ -1624,6 +1654,7 @@ function rerenderOdds() {
     if (v) renderBracket(v.sim, { ...v, mode: 'matchday' });
     else renderBracket(state.sim || null, { mode: 'matchday' });
   }
+  if (state.mc) renderMC(); // champion column is source-aware too
 }
 
 async function setOddsSource(src) {
@@ -1661,14 +1692,23 @@ function renderMC() {
   }
   const { tally, n } = state.mc;
   const rows = Object.keys(tally).map(id => ({ id, ...tally[id] }));
-  rows.sort((a, b) => state.sortDir * (a[state.sort] - b[state.sort]) ||
-    (b.champion - a.champion) || (b.final - a.final) || (b.sf - a.sf));
+  // source-aware champion fraction (model / market / blend) per team
+  rows.forEach(r => { r._champFrac = championProb(r.id, r.champion / n); });
+  const sortVal = (r, key) => key === 'champion' ? r._champFrac : r[key] / n;
+  rows.sort((a, b) => state.sortDir * (sortVal(a, state.sort) - sortVal(b, state.sort)) ||
+    (b._champFrac - a._champFrac) || (b.final - a.final) || (b.sf - a.sf));
 
   const fmt = v => {
     const p = (100 * v) / n;
     if (v === 0) return '<span style="color:#4d4d4d">0</span>';
     return p >= 99.95 ? '100' : p.toFixed(1);
   };
+  const fmtFrac = f => {
+    const p = 100 * f;
+    if (f <= 0) return '<span style="color:#4d4d4d">0</span>';
+    return p >= 99.95 ? '100' : p.toFixed(1);
+  };
+  const marketChamp = (state.oddsSource !== 'elo') && state.marketWinnerOk;
 
   let head = `<tr><th>#</th><th>TEAM</th><th>RATING</th>`;
   for (const c of MC_COLS) {
@@ -1687,13 +1727,17 @@ function renderMC() {
       <td>${t.elo}</td>`;
     let funnel = '';
     for (const c of MC_COLS) {
-      const p = (100 * r[c.key]) / n;
-      body += `<td class="prob-cell"><span class="prob-bar" style="width:${Math.min(100, p)}%"></span>
-        <span class="prob-num ${p >= 50 ? 'prob-hot' : ''}">${fmt(r[c.key])}</span></td>`;
-      funnel += `<div class="stage ${c.key === 'champion' ? 'champ' : ''} ${state.sort === c.key ? 'sorted' : ''}">
+      const isChamp = c.key === 'champion';
+      const frac = isChamp ? r._champFrac : r[c.key] / n;
+      const p = 100 * frac;
+      const txt = isChamp ? fmtFrac(frac) : fmt(r[c.key]);
+      const mkTag = (isChamp && marketChamp && state.marketWinner[r.id] != null) ? ' champ-market' : '';
+      body += `<td class="prob-cell${mkTag}"><span class="prob-bar" style="width:${Math.min(100, p)}%"></span>
+        <span class="prob-num ${p >= 50 ? 'prob-hot' : ''}">${txt}</span></td>`;
+      funnel += `<div class="stage ${isChamp ? 'champ' : ''} ${state.sort === c.key ? 'sorted' : ''}">
         <span class="sbar" style="height:${Math.min(100, p)}%"></span>
         <span class="slabel">${SHORT[c.key]}</span>
-        <span class="sval">${fmt(r[c.key])}</span>
+        <span class="sval">${txt}</span>
       </div>`;
     }
     body += '</tr>';
@@ -1714,8 +1758,11 @@ function renderMC() {
     <select id="mcSort">${MC_COLS.map(c => `<option value="${c.key}" ${state.sort === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
   </div>`;
 
+  const champSrcNote = marketChamp
+    ? `<span style="color:var(--color-real)"> · CHAMPION column: ${state.oddsSource === 'market' ? 'market outright odds' : 'blend (50% market / 50% model)'}</span>`
+    : (state.oddsSource !== 'elo' ? '<span style="color:var(--color-clinch)"> · CHAMPION: model (no winner market)</span>' : '');
   wrap.innerHTML = `
-    <p class="mono-label" style="margin-bottom:4px">${state.mcContext || (n.toLocaleString() + ' TOURNAMENTS SIMULATED')} · VALUES IN %</p>
+    <p class="mono-label" style="margin-bottom:4px">${state.mcContext || (n.toLocaleString() + ' TOURNAMENTS SIMULATED')} · VALUES IN %${champSrcNote}</p>
     ${sortControl}
     <div class="mc-table-wrap"><table class="mc-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="mc-stack">${cards}</div>`;

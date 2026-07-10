@@ -608,6 +608,9 @@ h3.subheading {
 .odds-src-note .oddn-warn { color: var(--color-clinch); }
 /* inline odds bar carries a faint green underline when a market line backs it */
 .match-odds.has-market { box-shadow: inset 0 -2px 0 -1px var(--color-real); }
+/* champion column cell backed by the live outright winner market */
+.prob-cell.champ-market { box-shadow: inset 0 0 0 1px rgba(79, 180, 119, 0.55); }
+.prob-cell.champ-market .prob-bar { background: var(--color-real); }
 /* tooltip source footer */
 .tip-src {
   display: block;

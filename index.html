@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=33">
 </head>
 <body>
 
@@ -122,6 +122,10 @@
     under-counting draws. Hosts (USA / Mexico / Canada) carry a home-advantage bump (~+70 Elo) in their group games.
     Group tiebreakers follow the FIFA 2026 order — points, then head-to-head (points, GD, goals), then overall GD and
     goals, then conduct/ranking (approximated by lots). Third-place allocation solved per scenario against the published slot constraints.
+    Every column here except CHAMPION is a Monte-Carlo frequency over full-tournament simulations. When the source toggle is set to
+    <span style="color:var(--color-real)">MARKET</span> or <span style="color:var(--color-real)">BLEND</span>, the CHAMPION column is
+    replaced (or blended 50/50) with the live de-vigged <em>outright winner</em> market — bookmakers' direct price on who lifts the
+    trophy — while the other columns stay model-based.
     Ratings: World Football Elo (eloratings.net) — a 7 Jul 2026 baseline that then updates itself automatically, re-deriving each side's rating from every real result the live feed reports (K=60, goal-difference weighted). The knockout sheet can also price ties from live betting markets (de-vigged 1X2) or a blend of the two — see the source toggle above. A stronger match predictor than the FIFA ranking.
     Groups reflect the final draw and March 2026 playoff results — Bosnia &amp; Herzegovina, Sweden, Türkiye,
     Czechia, DR Congo, Iraq. Part simulation, part entertainment — no wagering advice on this sheet.</p>
@@ -150,9 +154,9 @@
 
 </main>
 
-<script src="data.js?v=32"></script>
-<script src="engine.js?v=32"></script>
-<script src="live.js?v=32"></script>
-<script src="app.js?v=32"></script>
+<script src="data.js?v=33"></script>
+<script src="engine.js?v=33"></script>
+<script src="live.js?v=33"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>

@@ -32,8 +32,20 @@ if ($KEY === false || $KEY === '') {
   exit;
 }
 
+// ?market=winner -> outright tournament-winner futures; default -> match 1X2
+$market = isset($_GET['market']) ? preg_replace('/[^a-z]/', '', $_GET['market']) : 'h2h';
+if ($market === 'winner') {
+  $sport = 'soccer_fifa_world_cup_winner';
+  $mkt = 'outrights';
+  $tag = 'winner';
+} else {
+  $sport = 'soccer_fifa_world_cup';
+  $mkt = 'h2h';
+  $tag = 'h2h';
+}
+
 // cache for 10 minutes — odds move slowly and the free tier is small
-$cacheFile = sys_get_temp_dir() . '/wc_odds.json';
+$cacheFile = sys_get_temp_dir() . '/wc_odds_' . $tag . '.json';
 if (is_file($cacheFile) && (time() - filemtime($cacheFile) < 600)) {
   readfile($cacheFile);
   exit;
@@ -45,9 +57,9 @@ if (!function_exists('curl_init')) {
   exit;
 }
 
-$url = 'https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/'
+$url = 'https://api.the-odds-api.com/v4/sports/' . $sport . '/odds/'
      . '?apiKey=' . urlencode($KEY)
-     . '&regions=eu,uk&markets=h2h&oddsFormat=decimal';
+     . '&regions=eu,uk&markets=' . $mkt . '&oddsFormat=decimal';
 
 $ch = curl_init($url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
