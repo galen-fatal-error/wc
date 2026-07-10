@@ -592,6 +592,32 @@ h3.subheading {
   letter-spacing: 0.04em;
   color: var(--color-steel);
 }
+/* the ELO / MARKET / BLEND source toggle: greenish "market" accent so it
+   reads as distinct from the peri matchday/predictive toggle */
+.src-toggle .ko-mode-btn.active { background: var(--color-real); color: var(--color-void); }
+.odds-src-note {
+  width: 100%;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--color-steel);
+}
+.odds-src-note b { color: var(--color-ash); font-weight: 700; }
+.odds-src-note .oddn-ok { color: var(--color-real); }
+.odds-src-note .oddn-warn { color: var(--color-clinch); }
+/* inline odds bar carries a faint green underline when a market line backs it */
+.match-odds.has-market { box-shadow: inset 0 -2px 0 -1px var(--color-real); }
+/* tooltip source footer */
+.tip-src {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  color: var(--color-steel);
+}
+.tip-src-mkt { color: var(--color-real); }
 
 /* ---------- bracket connector tree ---------- */
 .bracket { position: relative; }

@@ -16,6 +16,6 @@ ssh funio '
   set -e
   cd ~/wc-app
   git pull --ff-only
-  rsync -a index.html styles.css app.js engine.js data.js live.js live.php public/
+  rsync -a index.html styles.css app.js engine.js data.js live.js live.php odds.php public/
 '
 curl -s -o /dev/null -w "https://wc.galen.ca/ -> %{http_code}\n" https://wc.galen.ca/

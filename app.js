@@ -44,9 +44,138 @@ const state = {
   matchVenues: { group: {}, ko: Object.assign({}, MATCH_VENUES_KO) }, // fixture venues
   koFixtures: {},       // FIFA-confirmed knockout matchups from the live feed
   thirdsView: 'projected', // best-thirds list: 'projected' (%) | 'current' (standings)
+  oddsSource: 'elo',    // rating source for displayed odds: 'elo' | 'market' | 'blend'
+  marketOdds: null,     // pairKey -> {a,b,pa,pd,pb} de-vigged 1X2 from the odds feed
+  marketOk: false,      // whether the last odds pull returned usable market lines
+  marketMsg: '',        // status string for the market feed
 };
 
 const team = id => TEAMS[id];
+
+// ---------- dynamic ratings ----------
+// The Elo in data.js is a BASELINE snapshot as of ELO_BASELINE_DATE. Live Elo
+// is re-derived from every real result the feed reports AFTER that date, so
+// ratings track the tournament automatically with no manual edits. We freeze
+// the baseline once at load, then recompute .elo from it whenever real data
+// changes (idempotent — always starts from the frozen baseline).
+const ELO_BASELINE_DATE = '2026-07-07'; // data.js reflects results through this date
+const ELO_UPDATE_K = 60;                // World Football Elo importance weight — WC finals
+Object.keys(TEAMS).forEach(id => { TEAMS[id].eloBase = TEAMS[id].elo; });
+
+// World Football Elo goal-difference multiplier
+function eloMarginMult(gd) {
+  if (gd <= 1) return 1;
+  if (gd === 2) return 1.5;
+  return (11 + gd) / 8;
+}
+
+// gather every real result (group + knockout) with a date, oldest first
+function realResultsChrono() {
+  const out = [];
+  const k = state.known;
+  if (!k) return out;
+  if (k.groups) {
+    for (const pk in k.groups) {
+      const g = k.groups[pk];
+      if (g.hg == null || g.ag == null) continue;
+      out.push({ home: g.home, away: g.away, hg: g.hg, ag: g.ag, date: groupDateFor(g.home, g.away) });
+    }
+  }
+  if (k.ko) {
+    for (const mn in k.ko) {
+      const m = k.ko[mn];
+      if (m.hg == null || m.ag == null) continue;
+      out.push({ home: m.home, away: m.away, hg: m.hg, ag: m.ag, date: (state.matchDates.ko[mn] || '') });
+    }
+  }
+  return out.sort((x, y) => String(x.date).localeCompare(String(y.date)));
+}
+
+// look up the scheduled date of a played group game (best-effort)
+function groupDateFor(home, away) {
+  const gd = state.matchDates && state.matchDates.group;
+  if (!gd) return '';
+  return gd[pairKey(home, away)] || gd[home + '|' + away] || gd[away + '|' + home] || '';
+}
+
+// recompute every team's live Elo from the frozen baseline + post-baseline
+// results. A penalty shoot-out (level score) counts as a draw for rating.
+function recomputeLiveElo() {
+  const R = {};
+  Object.keys(TEAMS).forEach(id => { R[id] = TEAMS[id].eloBase; });
+  for (const m of realResultsChrono()) {
+    if (!m.date || m.date <= ELO_BASELINE_DATE) continue; // already baked into baseline
+    if (R[m.home] == null || R[m.away] == null) continue;
+    const we = eloExpected(R[m.home], R[m.away]);
+    const wa = m.hg > m.ag ? 1 : (m.hg < m.ag ? 0 : 0.5);
+    const g = eloMarginMult(Math.abs(m.hg - m.ag));
+    const delta = ELO_UPDATE_K * g * (wa - we);
+    R[m.home] += delta;
+    R[m.away] -= delta;
+  }
+  Object.keys(TEAMS).forEach(id => { TEAMS[id].elo = Math.round(R[id]); });
+}
+
+// ---------- source-aware match probabilities ----------
+// Every displayed odd (inline bars, tooltips) and the predictive chalk bracket
+// route through here, so ELO / MARKET / BLEND all share one code path.
+const BLEND_MARKET_WEIGHT = 0.5; // Blend = 50% market, 50% Elo where a line exists
+
+// market 1X2 for a matchup, oriented to (homeId perspective), or null
+function marketProbsFor(homeId, awayId) {
+  const m = state.marketOdds && state.marketOdds[pairKey(homeId, awayId)];
+  if (!m) return null;
+  return m.a === homeId
+    ? { w: m.pa, d: m.pd, l: m.pb }
+    : { w: m.pb, d: m.pd, l: m.pa };
+}
+
+// Elo-model probabilities: 90′ W/D/L plus advance prob (incl. ET / pens)
+function eloProbsFor(homeId, awayId) {
+  const [la, lb] = goalLambdas(team(homeId).elo, team(awayId).elo);
+  const [w, d, l] = outcomeProbs(la, lb);
+  return { w, d, l, adv: koWinProb(team(homeId).elo, team(awayId).elo) };
+}
+
+// approximate a knockout advance prob from 90′ 1X2 by splitting the draw share
+// in proportion to each side's regulation win share
+function advanceFrom(w, d, l) {
+  const base = w + l;
+  return base > 0 ? w + d * (w / base) : w + d / 2;
+}
+
+// unified probability accessor, honouring state.oddsSource. Falls back to Elo
+// wherever no market line exists (group games, unpriced future ties).
+function matchProbs(homeId, awayId) {
+  const elo = eloProbsFor(homeId, awayId);
+  const src = state.oddsSource || 'elo';
+  if (src === 'elo') return elo;
+  const mk = marketProbsFor(homeId, awayId);
+  if (!mk) return elo; // graceful fallback
+  const market = { w: mk.w, d: mk.d, l: mk.l, adv: advanceFrom(mk.w, mk.d, mk.l) };
+  if (src === 'market') return market;
+  // blend: weighted mix of the two probability vectors, renormalized
+  const wgt = BLEND_MARKET_WEIGHT;
+  const mix = (e, m) => e * (1 - wgt) + m * wgt;
+  let w = mix(elo.w, market.w), d = mix(elo.d, market.d), l = mix(elo.l, market.l);
+  const s = w + d + l || 1;
+  return { w: w / s, d: d / s, l: l / s, adv: mix(elo.adv, market.adv) };
+}
+
+// tiny tooltip footer noting which rating source produced the shown odds
+function oddsSourceTipRow(homeId, awayId) {
+  const src = state.oddsSource || 'elo';
+  if (src === 'elo') return '<span class="tip-src">Source: World Football Elo model</span>';
+  const has = !!marketProbsFor(homeId, awayId);
+  if (src === 'market') {
+    return has
+      ? '<span class="tip-src tip-src-mkt">Source: market odds (de-vigged, median of books)</span>'
+      : '<span class="tip-src">Source: Elo model <span style="color:#7a6">(no market line for this tie)</span></span>';
+  }
+  return has
+    ? '<span class="tip-src tip-src-mkt">Source: blend · 50% market / 50% Elo</span>'
+    : '<span class="tip-src">Source: Elo model <span style="color:#7a6">(no market line to blend)</span></span>';
+}
 const groupOf = id => Object.keys(GROUPS).find(g => GROUPS[g].includes(id));
 
 const THIRD_ALLOWED = {};
@@ -846,7 +975,7 @@ function buildChalk() {
           winner = real.winner; loser = winner === home ? away : home;
           pHome = winner === home ? 1 : 0; // actual result
         } else {
-          pHome = koWinProb(team(home).elo, team(away).elo);
+          pHome = matchProbs(home, away).adv;
           winner = pHome >= 0.5 ? home : away;
           loser = winner === home ? away : home;
         }
@@ -1009,9 +1138,9 @@ function renderBracket(sim, opts = {}) {
   // otherwise) — so the percentages show without entering predictive mode.
   function oddsLine(h, a) {
     if (!h || !a) return '';
-    const [la, lb] = goalLambdas(team(h).elo, team(a).elo);
-    const [w, d, l] = outcomeProbs(la, lb);
-    return `<div class="match-odds">
+    const { w, d, l } = matchProbs(h, a);
+    const mk = state.oddsSource !== 'elo' && marketProbsFor(h, a) ? ' has-market' : '';
+    return `<div class="match-odds${mk}">
       <span class="mo-bar"><i style="width:${(w * 100).toFixed(1)}%"></i><i class="mo-d" style="width:${(d * 100).toFixed(1)}%"></i><i class="mo-a" style="flex:1"></i></span>
       <span class="mo-nums">${Math.round(w * 100)} · ${Math.round(d * 100)} · ${Math.round(l * 100)}</span>
     </div>`;
@@ -1197,15 +1326,16 @@ function bracketTipPredict(id) {
   }
   const h = team(cm.home), a = team(cm.away);
   const pH = cm.pHome; // head-to-head incl. ET / pens
-  const [la, lb] = goalLambdas(h.elo, a.elo);
-  const [w90, d90, l90] = outcomeProbs(la, lb);
+  const mp = matchProbs(cm.home, cm.away);
+  const w90 = mp.w, d90 = mp.d, l90 = mp.l;
   const w = team(cm.winner);
   const favPct = cm.winner === cm.home ? pH : 1 - pH;
   html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
     <span class="tip-strong">${a.name} ${a.flag}</span> <span style="color:#4d4d4d">— projected tie</span></span>
     <div class="tip-odds-bar"><span class="home-share" style="width:${w90 * 100}%"></span><span class="draw-share" style="width:${d90 * 100}%"></span><span class="away-share" style="flex:1"></span></div>
     <span class="tip-row tip-mono">${h.code} <span class="tip-strong">${pct(w90)}</span> · draw ${pct(d90)} · <span class="tip-strong">${pct(l90)}</span> ${a.code} <span style="color:#4d4d4d">(90′)</span></span>
-    <span class="tip-row tip-mono">${w.flag} <span class="tip-strong">${w.name}</span> favoured to advance · <span class="tip-strong">${pct(favPct)}</span> <span style="color:#4d4d4d">(incl. ET / pens)</span></span>`;
+    <span class="tip-row tip-mono">${w.flag} <span class="tip-strong">${w.name}</span> favoured to advance · <span class="tip-strong">${pct(favPct)}</span> <span style="color:#4d4d4d">(incl. ET / pens)</span></span>
+    ${oddsSourceTipRow(cm.home, cm.away)}`;
   // how likely each shown team is to actually reach this slot
   html += `<span class="tip-rule">Chance to reach this slot:</span>
     <div class="tip-pred-row"><span class="tpr-name">${h.flag} ${h.name}</span>
@@ -1256,16 +1386,16 @@ function bracketTip(id) {
   }
 
   const h = team(hId), a = team(aId);
-  const pH = koWinProb(h.elo, a.elo);
-  const [la, lb] = goalLambdas(h.elo, a.elo);
-  const [w90, d90, l90] = outcomeProbs(la, lb);
+  const mp = matchProbs(hId, aId);
+  const pH = mp.adv, w90 = mp.w, d90 = mp.d, l90 = mp.l;
 
   html += `<span class="tip-row"><span class="tip-strong">${h.flag} ${h.name}</span> v
     <span class="tip-strong">${a.name} ${a.flag}</span></span>
     <div class="tip-odds-bar"><span class="home-share" style="width:${w90 * 100}%"></span><span class="draw-share" style="width:${d90 * 100}%"></span><span class="away-share" style="flex:1"></span></div>
     <span class="tip-row tip-mono">${h.code} <span class="tip-strong">${pct(w90)}</span> · draw ${pct(d90)} · <span class="tip-strong">${pct(l90)}</span> ${a.code}
       <span style="color:#4d4d4d">— pre-match (90′)</span></span>
-    <span class="tip-row tip-mono" style="color:var(--color-steel)">${h.code} <span class="tip-strong">${pct(pH)}</span> · ${pct(1 - pH)} ${a.code} to advance (incl. ET / pens)</span>`;
+    <span class="tip-row tip-mono" style="color:var(--color-steel)">${h.code} <span class="tip-strong">${pct(pH)}</span> · ${pct(1 - pH)} ${a.code} to advance (incl. ET / pens)</span>
+    ${oddsSourceTipRow(hId, aId)}`;
 
   if (mObj && played) {
     html += `<span class="tip-rule">FULL TIME: <span class="tip-strong">${h.code} ${mObj.hg}–${mObj.ag} ${a.code}</span>${mObj.et ? ' after extra time' : ''}.</span>`;
@@ -1299,7 +1429,7 @@ function setKoStatus(html) {
 }
 
 function syncKoModeButtons() {
-  $$('.ko-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.komode === state.koMode));
+  $$('#koModeToggle .ko-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.komode === state.koMode));
 }
 
 // One-shot, silent pull of current real results. Sets state.known so every
@@ -1329,6 +1459,7 @@ async function syncLiveQuiet() {
     // expose confirmed fixtures to the engine so simulations (incl. matchday)
     // honour FIFA's third-place allocation instead of reshuffling locked ties
     state.known.koFixtures = state.koFixtures;
+    recomputeLiveElo(); // auto-derive ratings from the results just folded in
     return folded;
   } catch (e) {
     return null;
@@ -1340,6 +1471,38 @@ function setRealNote(html) {
   if (el) el.innerHTML = html;
 }
 
+// Pull live betting odds via the odds.php proxy and de-vig them. The market
+// feed needs a server-side API key; until one is present odds.php returns
+// {"error":"no key"} and we quietly stay on the Elo model. Returns true when
+// usable market lines were loaded.
+let marketFetching = false;
+async function syncMarketOdds() {
+  if (marketFetching) return state.marketOk;
+  marketFetching = true;
+  try {
+    const feed = makeOddsFeed(WC_DATA);
+    const snap = await feed.snapshot();
+    if (snap && snap.ok) {
+      state.marketOdds = snap.market;
+      state.marketOk = true;
+      state.marketMsg = `${snap.matched} market line${snap.matched === 1 ? '' : 's'} loaded`;
+    } else {
+      state.marketOdds = null;
+      state.marketOk = false;
+      state.marketMsg = (snap && snap.reason === 'no key')
+        ? 'no odds API key set — using Elo fallback'
+        : `market feed unavailable (${(snap && snap.reason) || 'error'}) — using Elo fallback`;
+    }
+  } catch (e) {
+    state.marketOdds = null;
+    state.marketOk = false;
+    state.marketMsg = 'market feed unreachable — using Elo fallback';
+  } finally {
+    marketFetching = false;
+  }
+  return state.marketOk;
+}
+
 // Pull real data and refresh whatever's on screen. Real data is always on:
 // run on load and on demand via the ↻ REAL DATA button.
 async function refreshRealData(announce) {
@@ -1348,6 +1511,8 @@ async function refreshRealData(announce) {
   setRealNote('<span class="real-syncing">● syncing real results…</span>');
   const folded = await syncLiveQuiet();
   state.predict = null; // force predictive to re-project on next open
+  // refresh market odds too when a market-backed source is active
+  if (state.oddsSource !== 'elo') await syncMarketOdds();
   if (btn) { btn.disabled = false; btn.textContent = '↻ REAL DATA'; }
 
   if (!folded) {
@@ -1419,6 +1584,60 @@ function setKoMode(mode) {
       ? '⚽ MATCHDAY · one simulated tournament, with scores.'
       : '⚽ MATCHDAY · real results in gold · run Matchday or Run Once to play it out.');
   }
+}
+
+// ---------- odds source (Elo / Market / Blend) ----------
+
+function syncOddsSrcButtons() {
+  $$('#oddsSourceToggle .ko-mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.oddsrc === state.oddsSource));
+}
+
+function updateOddsSrcNote() {
+  const el = $('#oddsSrcNote');
+  if (!el) return;
+  const src = state.oddsSource || 'elo';
+  if (src === 'elo') {
+    el.innerHTML = '<b>FIFA Elo</b> — win/draw/win from the World Football Elo model, auto-updated from live results.';
+    el.className = 'odds-src-note';
+    return;
+  }
+  const label = src === 'market' ? 'Market odds' : 'Blend';
+  const detail = src === 'market'
+    ? 'live 1X2 from bookmakers, de-vigged to true probabilities'
+    : '50 / 50 mix of market odds and the Elo model';
+  if (state.marketOk) {
+    el.innerHTML = `<b>${label}</b> — ${detail}. <span class="oddn-ok">● ${state.marketMsg}</span>`;
+    el.className = 'odds-src-note ok';
+  } else {
+    el.innerHTML = `<b>${label}</b> — ${detail}. <span class="oddn-warn">○ ${state.marketMsg || 'market feed not loaded'} — falling back to Elo per tie.</span>`;
+    el.className = 'odds-src-note warn';
+  }
+}
+
+// re-render whatever knockout view is active so new odds take effect
+function rerenderOdds() {
+  if (state.matchday) return; // don't disturb a running animation
+  if (state.koMode === 'predict') { state.chalk = state.predict ? buildChalk() : state.chalk; enterPredict(); }
+  else {
+    const v = state.mdView;
+    if (v) renderBracket(v.sim, { ...v, mode: 'matchday' });
+    else renderBracket(state.sim || null, { mode: 'matchday' });
+  }
+}
+
+async function setOddsSource(src) {
+  if (!src || src === state.oddsSource) return;
+  state.oddsSource = src;
+  syncOddsSrcButtons();
+  if (src !== 'elo' && !state.marketOk) {
+    updateOddsSrcNote(); // show "loading" state implicitly via existing msg
+    const note = $('#oddsSrcNote');
+    if (note) note.innerHTML = `<b>${src === 'market' ? 'Market odds' : 'Blend'}</b> — <span class="oddn-warn">◌ fetching live odds…</span>`;
+    await syncMarketOdds();
+  }
+  updateOddsSrcNote();
+  rerenderOdds();
 }
 
 // ---------- monte carlo ----------
@@ -2100,6 +2319,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = ev.target.closest('.ko-mode-btn');
     if (btn) setKoMode(btn.dataset.komode);
   });
+
+  $('#oddsSourceToggle').addEventListener('click', ev => {
+    const btn = ev.target.closest('.ko-mode-btn');
+    if (btn) setOddsSource(btn.dataset.oddsrc);
+  });
+  updateOddsSrcNote();
 
   // keep the connector tree aligned when the viewport changes
   let resizeT;

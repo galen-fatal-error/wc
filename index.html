@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=32">
 </head>
 <body>
 
@@ -88,15 +88,23 @@
     reads as one coherent path (hover a fixture for the head-to-head odds and each side's chance to reach it). A round-of-32 slot is
     <span class="clinch-key-text">outlined in gold once its exact occupant is locked</span> — i.e. a group winner or
     runner-up is mathematically settled (securing a spot but not yet a finishing position leaves both of a group's
-    slots open). Hover or tap any fixture for detail.</p>
+    slots open). Hover or tap any fixture for detail. The <span style="color:var(--color-real)">FIFA ELO / MARKET /
+    BLEND</span> toggle picks what drives the win/draw/win numbers — the Elo model, live de-vigged bookmaker odds, or a
+    50/50 blend (Market and Blend fall back to Elo on any tie the books haven't priced).</p>
 
     <div class="ko-mode-bar">
       <div class="ko-mode-toggle" id="koModeToggle">
         <button class="ko-mode-btn active" data-komode="matchday">⚽ MATCHDAY</button>
         <button class="ko-mode-btn" data-komode="predict">◎ PREDICTIVE</button>
       </div>
+      <div class="ko-mode-toggle src-toggle" id="oddsSourceToggle" title="Which numbers drive the win/draw/win odds">
+        <button class="ko-mode-btn active" data-oddsrc="elo">FIFA ELO</button>
+        <button class="ko-mode-btn" data-oddsrc="market">MARKET</button>
+        <button class="ko-mode-btn" data-oddsrc="blend">BLEND</button>
+      </div>
       <span class="ko-mode-status" id="koModeStatus">⚽ MATCHDAY · real results in gold · hover a fixture for odds.</span>
     </div>
+    <div class="odds-src-note" id="oddsSrcNote"></div>
 
     <div class="bracket-wrap" id="bracketWrap">
       <div class="bracket" id="bracket"></div>
@@ -114,7 +122,7 @@
     under-counting draws. Hosts (USA / Mexico / Canada) carry a home-advantage bump (~+70 Elo) in their group games.
     Group tiebreakers follow the FIFA 2026 order — points, then head-to-head (points, GD, goals), then overall GD and
     goals, then conduct/ranking (approximated by lots). Third-place allocation solved per scenario against the published slot constraints.
-    Ratings: World Football Elo (eloratings.net) — group baseline 30 Jun 2026, quarter-finalists refreshed 7 Jul 2026; a stronger match predictor than the FIFA ranking.
+    Ratings: World Football Elo (eloratings.net) — a 7 Jul 2026 baseline that then updates itself automatically, re-deriving each side's rating from every real result the live feed reports (K=60, goal-difference weighted). The knockout sheet can also price ties from live betting markets (de-vigged 1X2) or a blend of the two — see the source toggle above. A stronger match predictor than the FIFA ranking.
     Groups reflect the final draw and March 2026 playoff results — Bosnia &amp; Herzegovina, Sweden, Türkiye,
     Czechia, DR Congo, Iraq. Part simulation, part entertainment — no wagering advice on this sheet.</p>
   </section>
@@ -142,9 +150,9 @@
 
 </main>
 
-<script src="data.js?v=31"></script>
-<script src="engine.js?v=31"></script>
-<script src="live.js?v=31"></script>
-<script src="app.js?v=31"></script>
+<script src="data.js?v=32"></script>
+<script src="engine.js?v=32"></script>
+<script src="live.js?v=32"></script>
+<script src="app.js?v=32"></script>
 </body>
 </html>

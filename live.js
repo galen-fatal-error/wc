@@ -212,3 +212,65 @@ function makeRealFeed(data, proxyUrl) {
 function groupOfId(id) {
   return Object.keys(GROUPS).find(g => GROUPS[g].includes(id));
 }
+
+// ---------- betting-odds feed (the-odds-api via odds.php proxy) ----------
+// Pulls live 1X2 (home/draw/away) match odds, takes the median across the
+// listed bookmakers, and de-vigs to true implied probabilities. Returns a map
+// keyed by pairKey(teamA,teamB) so the app can look a matchup up regardless of
+// which side is "home". Any upstream/key failure surfaces as { ok:false }.
+const ODDS_PROXY_URL = 'odds.php';
+
+function devigThree(oh, od, oa) {
+  // decimal odds -> implied prob (1/odds), then normalize out the overround
+  const ih = 1 / oh, id = od ? 1 / od : 0, ia = 1 / oa;
+  const s = ih + id + ia;
+  if (!(s > 0)) return null;
+  return { h: ih / s, d: id / s, a: ia / s };
+}
+
+function median(arr) {
+  if (!arr.length) return 0;
+  const s = arr.slice().sort((x, y) => x - y);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function makeOddsFeed(data, proxyUrl) {
+  const url = proxyUrl || ODDS_PROXY_URL;
+  return {
+    kind: 'odds',
+    url,
+    async snapshot() {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!res.ok) return { ok: false, reason: 'proxy ' + res.status };
+      const payload = await res.json();
+      if (payload && payload.error) return { ok: false, reason: String(payload.error) };
+      const events = Array.isArray(payload) ? payload : (payload.data || []);
+      if (!Array.isArray(events)) return { ok: false, reason: 'unexpected payload' };
+      const market = {};
+      let matched = 0;
+      for (const ev of events) {
+        const homeId = nameToId(ev.home_team);
+        const awayId = nameToId(ev.away_team);
+        if (!homeId || !awayId) continue;
+        const oh = [], od = [], oa = [];
+        for (const bk of ev.bookmakers || []) {
+          const mk = (bk.markets || []).find(m => m.key === 'h2h');
+          if (!mk) continue;
+          for (const o of mk.outcomes || []) {
+            if (o.name === ev.home_team) oh.push(o.price);
+            else if (o.name === ev.away_team) oa.push(o.price);
+            else od.push(o.price); // "Draw"
+          }
+        }
+        if (!oh.length || !oa.length) continue;
+        const p = devigThree(median(oh), median(od), median(oa));
+        if (!p) continue;
+        // store oriented to (homeId, awayId): pa=home win, pd=draw, pb=away win
+        market[pairKey(homeId, awayId)] = { a: homeId, b: awayId, pa: p.h, pd: p.d, pb: p.a };
+        matched++;
+      }
+      return { ok: matched > 0, market, matched, events: events.length };
+    },
+  };
+}
