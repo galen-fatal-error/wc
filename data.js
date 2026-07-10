@@ -2,12 +2,12 @@
    WC26 BRACKET LAB — tournament data
    Sources: FIFA final draw (Dec 5, 2025) + March 2026 playoff
    results (Bosnia, Sweden, Türkiye, Czechia, DR Congo, Iraq).
-   Ratings: World Football Elo (eloratings.net), refreshed 30 Jun 2026
-   (post-group-stage). A stronger match predictor than the FIFA ranking.
-   Expected score uses the standard Elo 400-point logistic; goals are sampled
-   from a Dixon-Coles-corrected bivariate Poisson (see engine.js). Played
-   matches are conditioned on real results, so these ratings drive the
-   remaining (knockout) projections.
+   Ratings: World Football Elo (eloratings.net). Group-stage baseline 30 Jun
+   2026; the eight quarter-finalists refreshed 7 Jul 2026 (post round-of-16).
+   A stronger match predictor than the FIFA ranking. Expected score uses the
+   standard Elo 400-point logistic; goals are sampled from a Dixon-Coles-
+   corrected bivariate Poisson (see engine.js). Played matches are conditioned
+   on real results, so these ratings drive the remaining (knockout) projections.
    ============================================================ */
 
 'use strict';
@@ -20,12 +20,12 @@ const TEAMS = {
   CZE: { id: 'CZE', name: 'Czechia',       code: 'CZE', flag: '🇨🇿', elo: 1680 },
   // Group B
   CAN: { id: 'CAN', name: 'Canada',        code: 'CAN', flag: '🇨🇦', elo: 1764 },
-  SUI: { id: 'SUI', name: 'Switzerland',   code: 'SUI', flag: '🇨🇭', elo: 1914 },
+  SUI: { id: 'SUI', name: 'Switzerland',   code: 'SUI', flag: '🇨🇭', elo: 1949 },
   QAT: { id: 'QAT', name: 'Qatar',         code: 'QAT', flag: '🇶🇦', elo: 1411 },
   BIH: { id: 'BIH', name: 'Bosnia & Herz.',code: 'BIH', flag: '🇧🇦', elo: 1622 },
   // Group C
   BRA: { id: 'BRA', name: 'Brazil',        code: 'BRA', flag: '🇧🇷', elo: 2031 },
-  MAR: { id: 'MAR', name: 'Morocco',       code: 'MAR', flag: '🇲🇦', elo: 1886 },
+  MAR: { id: 'MAR', name: 'Morocco',       code: 'MAR', flag: '🇲🇦', elo: 1921 },
   SCO: { id: 'SCO', name: 'Scotland',      code: 'SCO', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', elo: 1745 },
   HAI: { id: 'HAI', name: 'Haiti',         code: 'HAI', flag: '🇭🇹', elo: 1517 },
   // Group D
@@ -44,22 +44,22 @@ const TEAMS = {
   TUN: { id: 'TUN', name: 'Tunisia',       code: 'TUN', flag: '🇹🇳', elo: 1562 },
   SWE: { id: 'SWE', name: 'Sweden',        code: 'SWE', flag: '🇸🇪', elo: 1731 },
   // Group G
-  BEL: { id: 'BEL', name: 'Belgium',       code: 'BEL', flag: '🇧🇪', elo: 1884 },
+  BEL: { id: 'BEL', name: 'Belgium',       code: 'BEL', flag: '🇧🇪', elo: 1961 },
   IRN: { id: 'IRN', name: 'Iran',          code: 'IRN', flag: '🇮🇷', elo: 1764 },
   EGY: { id: 'EGY', name: 'Egypt',         code: 'EGY', flag: '🇪🇬', elo: 1742 },
   NZL: { id: 'NZL', name: 'New Zealand',   code: 'NZL', flag: '🇳🇿', elo: 1534 },
   // Group H
-  ESP: { id: 'ESP', name: 'Spain',         code: 'ESP', flag: '🇪🇸', elo: 2144 },
+  ESP: { id: 'ESP', name: 'Spain',         code: 'ESP', flag: '🇪🇸', elo: 2177 },
   URU: { id: 'URU', name: 'Uruguay',       code: 'URU', flag: '🇺🇾', elo: 1841 },
   KSA: { id: 'KSA', name: 'Saudi Arabia',  code: 'KSA', flag: '🇸🇦', elo: 1596 },
   CPV: { id: 'CPV', name: 'Cape Verde',    code: 'CPV', flag: '🇨🇻', elo: 1622 },
   // Group I
-  FRA: { id: 'FRA', name: 'France',        code: 'FRA', flag: '🇫🇷', elo: 2134 },
+  FRA: { id: 'FRA', name: 'France',        code: 'FRA', flag: '🇫🇷', elo: 2143 },
   SEN: { id: 'SEN', name: 'Senegal',       code: 'SEN', flag: '🇸🇳', elo: 1842 },
-  NOR: { id: 'NOR', name: 'Norway',        code: 'NOR', flag: '🇳🇴', elo: 1934 },
+  NOR: { id: 'NOR', name: 'Norway',        code: 'NOR', flag: '🇳🇴', elo: 1972 },
   IRQ: { id: 'IRQ', name: 'Iraq',          code: 'IRQ', flag: '🇮🇶', elo: 1561 },
   // Group J
-  ARG: { id: 'ARG', name: 'Argentina',     code: 'ARG', flag: '🇦🇷', elo: 2148 },
+  ARG: { id: 'ARG', name: 'Argentina',     code: 'ARG', flag: '🇦🇷', elo: 2156 },
   AUT: { id: 'AUT', name: 'Austria',       code: 'AUT', flag: '🇦🇹', elo: 1836 },
   ALG: { id: 'ALG', name: 'Algeria',       code: 'ALG', flag: '🇩🇿', elo: 1785 },
   JOR: { id: 'JOR', name: 'Jordan',        code: 'JOR', flag: '🇯🇴', elo: 1628 },
@@ -69,7 +69,7 @@ const TEAMS = {
   UZB: { id: 'UZB', name: 'Uzbekistan',    code: 'UZB', flag: '🇺🇿', elo: 1631 },
   COD: { id: 'COD', name: 'DR Congo',      code: 'COD', flag: '🇨🇩', elo: 1712 },
   // Group L
-  ENG: { id: 'ENG', name: 'England',       code: 'ENG', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', elo: 2038 },
+  ENG: { id: 'ENG', name: 'England',       code: 'ENG', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', elo: 2076 },
   CRO: { id: 'CRO', name: 'Croatia',       code: 'CRO', flag: '🇭🇷', elo: 1905 },
   PAN: { id: 'PAN', name: 'Panama',        code: 'PAN', flag: '🇵🇦', elo: 1658 },
   GHA: { id: 'GHA', name: 'Ghana',         code: 'GHA', flag: '🇬🇭', elo: 1575 },
